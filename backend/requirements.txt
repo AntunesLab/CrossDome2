@@ -1,0 +1,11 @@
+Flask>=3.0,<4
+flask-cors>=4.0,<6
+python-dotenv>=1.0,<2
+numpy>=1.26,<3
+pandas>=2.2,<3
+scipy>=1.12,<2
+statsmodels>=0.14,<1
+matplotlib>=3.8,<4
+pyarrow>=15,<22
+pyreadr>=0.5,<1
+gunicorn>=22,<24

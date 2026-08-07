@@ -1,0 +1,25 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "5000:5000"
+    environment:
+      FLASK_DEBUG: "0"
+      CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+    volumes:
+      - ./backend/bio-database:/app/bio-database:ro
+      - crossdome_outputs:/app/outputs
+      - crossdome_uploads:/app/uploads
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_BASE: http://127.0.0.1:5000
+    depends_on:
+      - backend
+
+volumes:
+  crossdome_outputs:
+  crossdome_uploads:
