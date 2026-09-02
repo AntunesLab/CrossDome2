@@ -2,7 +2,7 @@ services:
   backend:
     build: ./backend
     ports:
-      - "5000:5000"
+      - "5001:5000"
     environment:
       FLASK_DEBUG: "0"
       CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
@@ -16,7 +16,7 @@ services:
     ports:
       - "5173:5173"
     environment:
-      VITE_API_BASE: http://127.0.0.1:5000
+      VITE_API_BASE: http://127.0.0.1:5001
     depends_on:
       - backend
 
