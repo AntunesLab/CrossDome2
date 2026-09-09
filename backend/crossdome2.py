@@ -20,23 +20,30 @@ def _fmt_time(seconds: float) -> str:
 
 def main():
     parser = argparse.ArgumentParser(description="CrossDome 2.1")
-    parser.add_argument("--bio-dir", default=str(Path(__file__).resolve().parent / "bio-database"))
+    parser.add_argument(
+        "--bio-dir",
+        default=str(Path(__file__).resolve().parent / "bio-database"),
+        help="Directory with the peptide databases, RdS parameters, and MDS/BLOSUM scoring data (default: backend/bio-database)",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    analyze = sub.add_parser("analyze")
+    analyze = sub.add_parser(
+        "analyze",
+        help="Score one or more query peptides against an HLA allele's background peptide set.",
+    )
     analyze.add_argument("query", help="One peptide or comma-separated peptides")
-    analyze.add_argument("allele")
-    analyze.add_argument("--species", default="human")
-    analyze.add_argument("--mhc-class", default="I", choices=["I", "II"])
-    analyze.add_argument("--custom-db")
+    analyze.add_argument("allele", help="HLA allele, e.g. 'HLA-A*02:01'")
+    analyze.add_argument("--species", default="human", help="Background species (default: human)")
+    analyze.add_argument("--mhc-class", default="I", choices=["I", "II"], help="MHC class (default: I)")
+    analyze.add_argument("--custom-db", help="Optional CSV/TSV/TXT/Parquet file of extra peptides to append to the background")
     analyze.add_argument("--tcr-weights", help="Comma/space-separated positional weights")
-    analyze.add_argument("--output", default="crossdome_results.csv")
+    analyze.add_argument("--output", default="crossdome_results.csv", help="Output CSV path (default: crossdome_results.csv)")
 
     compare = sub.add_parser("compare", help="Pairwise loop comparison of two peptide lists (any lengths).")
-    compare.add_argument("subjects")
-    compare.add_argument("targets")
-    compare.add_argument("--tcr-weights")
-    compare.add_argument("--output", default="crossdome_comparison.csv")
+    compare.add_argument("subjects", help="One peptide or comma-separated peptides")
+    compare.add_argument("targets", help="One peptide or comma-separated peptides")
+    compare.add_argument("--tcr-weights", help="Comma/space-separated positional weights")
+    compare.add_argument("--output", default="crossdome_comparison.csv", help="Output CSV path (default: crossdome_comparison.csv)")
 
     batch = sub.add_parser(
         "all-against-all",
