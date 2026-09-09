@@ -22,6 +22,13 @@ from .visualization import (
     plot_prediction_tools,
 )
 
+# run_comparison scores pairs one at a time in pure Python (~700-800 pairs/sec).
+# At 50,000 pairs a job already takes over a minute; beyond that, the web
+# request/job pipeline is the wrong tool. Large-scale all-against-all
+# comparisons should use the vectorized `crossdome2.py all-against-all`
+# command-line tool instead (see crossdome.vectorized).
+MAX_COMPARE_PAIRS = 50_000
+
 
 def parse_tcr_weights(text: str | None) -> list[float] | None:
     if not text or not text.strip():
@@ -312,6 +319,16 @@ def handle_request(instructions: dict, bio_dir: str | Path, output_dir: str | Pa
         )
         if not valid_target:
             raise ValueError(f"No valid target peptides found: {invalid_target}")
+
+        n_pairs = len(valid_subject) * len(valid_target)
+        if n_pairs > MAX_COMPARE_PAIRS:
+            raise ValueError(
+                f"Compare mode is limited to {MAX_COMPARE_PAIRS:,} peptide pairs per job "
+                f"(got {len(valid_subject):,} subject x {len(valid_target):,} target = "
+                f"{n_pairs:,} pairs). Split your peptide lists into smaller batches, or use "
+                "the 'all-against-all' command-line tool (crossdome2.py all-against-all) for "
+                "large-scale comparisons."
+            )
 
         df = run_comparison(
             valid_subject,
