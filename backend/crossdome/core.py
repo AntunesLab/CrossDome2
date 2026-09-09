@@ -49,19 +49,27 @@ def _validate_pair(a: str, b: str) -> tuple[list[str], list[str]]:
     return list(a), list(b)
 
 
-def _related_distance(
+def _per_position_distances(
     query: list[str],
     subject: list[str],
-    weights: list[float],
     mds: pd.DataFrame,
-) -> float:
+) -> np.ndarray:
     missing = sorted(set(query + subject).difference(mds.columns))
     if missing:
         raise ValueError(f"MDS components are missing amino acids: {missing}")
 
     q = mds[query].to_numpy(dtype=float)
     s = mds[subject].to_numpy(dtype=float)
-    per_position = np.sqrt(np.sum((q - s) ** 2, axis=0))
+    return np.sqrt(np.sum((q - s) ** 2, axis=0))
+
+
+def _related_distance(
+    query: list[str],
+    subject: list[str],
+    weights: list[float],
+    mds: pd.DataFrame,
+) -> float:
+    per_position = _per_position_distances(query, subject, mds)
 
     # Same weighting behavior used in the previous CrossDome implementation.
     weighted = per_position * np.sqrt(np.asarray(weights, dtype=float))
@@ -274,7 +282,10 @@ def cross_compose(
         subject = str(row["peptide_sequence"]).strip().upper()
         try:
             q, s = _validate_pair(query, subject)
-            score = _related_distance(q, s, weights, mds)
+            per_position = _per_position_distances(q, s, mds)
+            score = float(
+                np.sum(per_position * np.sqrt(np.asarray(weights, dtype=float))) / qlen
+            )
         except ValueError as exc:
             skipped.append({"peptide": subject, "reason": str(exc)})
             continue
@@ -296,6 +307,10 @@ def cross_compose(
                 "peptide_length": qlen,
                 "hla_allele": background.allele,
                 "resource": row.get("resource"),
+                # C-terminal-first per-position MDS distance, used only to break
+                # exact relatedness_score ties (which arise from the sum's
+                # order-invariance when the query has a repeated residue).
+                "_cterm_tiebreak": tuple(per_position[::-1]),
             }
         )
 
@@ -323,7 +338,8 @@ def cross_compose(
         out["relatedness_score"].rank(method="min", ascending=True) / len(out) * 100
     )
     out["rank"] = out["relatedness_score"].rank(method="min", ascending=True).astype(int)
-    out = out.sort_values(["rank", "subject"]).reset_index(drop=True)
+    out = out.sort_values(["rank", "_cterm_tiebreak", "subject"]).reset_index(drop=True)
+    out = out.drop(columns="_cterm_tiebreak")
 
     if include_predictions:
         out = _merge_predictions(out, bio_dir, background.allele)
