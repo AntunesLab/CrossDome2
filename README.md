@@ -23,7 +23,7 @@ The production peptide databases and calibrated RdS parameter file are **not fab
 ## Directory layout
 
 ```text
-CrossDome-2.1/
+CrossDome-2/
 ├── backend/
 │   ├── app.py
 │   ├── api.py
@@ -67,7 +67,7 @@ Human heatmaps and prediction plots additionally use the optional annotation/exp
 Python 3.12 is recommended.
 
 ```bash
-cd CrossDome-2.1/backend
+cd CrossDome-2/backend
 python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -88,7 +88,7 @@ curl http://127.0.0.1:5000/api/v1/health
 In a second terminal:
 
 ```bash
-cd CrossDome-2.1/frontend
+cd CrossDome-2/frontend
 npm install
 cp .env.example .env
 npm run dev
@@ -101,7 +101,7 @@ Open `http://127.0.0.1:5173`.
 After adding the bio-database files:
 
 ```bash
-cd CrossDome-2.1
+cd CrossDome-2
 docker compose up --build
 ```
 
