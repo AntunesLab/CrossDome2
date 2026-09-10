@@ -14,12 +14,37 @@ export function PageShell({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen relative overflow-hidden">
       <div
         className="fixed inset-0 z-0"
-        style={{
+        style={{/*
+          //original
           background: `
             radial-gradient(circle at 20% 30%, oklch(0.25 0.08 270) 0%, transparent 50%),
             radial-gradient(circle at 80% 70%, oklch(0.2 0.06 250) 0%, transparent 50%),
             oklch(0.15 0.04 250)
           `,
+          //Light blue-gray
+          background: `
+            radial-gradient(circle at 20% 30%, oklch(0.92 0.04 270) 0%, transparent 55%),
+            radial-gradient(circle at 80% 70%, oklch(0.90 0.05 250) 0%, transparent 55%),
+            oklch(0.96 0.015 250)
+          `*/
+          //Medium-light blue
+          background: `
+            radial-gradient(circle at 20% 30%, oklch(0.48 0.08 270) 0%, transparent 55%),
+            radial-gradient(circle at 80% 70%, oklch(0.42 0.07 250) 0%, transparent 55%),
+            oklch(0.35 0.05 250)
+          `/*
+          //Soft blue/lavender
+          background: `
+            radial-gradient(circle at 20% 25%, oklch(0.90 0.07 285) 0%, transparent 50%),
+            radial-gradient(circle at 80% 75%, oklch(0.91 0.06 235) 0%, transparent 50%),
+            oklch(0.95 0.025 255)
+          `
+          //Almost white
+          background: `
+          radial-gradient(circle at 15% 20%, oklch(0.94 0.045 255) 0%, transparent 45%),
+          radial-gradient(circle at 85% 75%, oklch(0.95 0.035 285) 0%, transparent 45%),
+          oklch(0.985 0.008 250)
+        `*/
         }}
       >
         <div className="noise-texture absolute inset-0" />

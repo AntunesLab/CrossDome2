@@ -22,7 +22,28 @@ const DEFAULT_IMMUNOGENICITY_TOOLS = [
   "BigMHC_IM",
   "PRIME",
   "DeepImmuno",
-  "TLImm",
+];
+
+const CROSSDOME_COLUMNS = [
+  "rank",
+  "query",
+  "subject",
+  "relatedness_score",
+  "rds_mu",
+  "rds_sigma",
+  "rds_cutoff_p005",
+  "rds_cutoff_p001",
+  "zscore",
+  "pvalue",
+  "pvalue_adj",
+  "significant",
+  "num_positive",
+  "num_mismatch",
+  "peptide_length",
+  "resource",
+  "BigMHC-EL",
+  "NetMHCpan-EL",
+  "DeepImmuno",
 ];
 
 interface ResultRow {
@@ -176,20 +197,47 @@ export default function Results() {
     if (!jobId || totalRows === 0) return;
 
     try {
-      // Prefer the backend CSV endpoint because it preserves every result column.
-      const response = await fetch(`${API_BASE_URL}/api/v1/job/${jobId}/download.csv`);
-      if (!response.ok) {
-        throw new Error("CSV export failed");
+      const response = await fetch(
+        `${API_BASE_URL}/api/v1/job/${jobId}/results-chunked?start=0&end=1000`
+      );
+      const data = await response.json();
+      const rows = data.rows || [];
+
+      if (rows.length === 0) {
+        toast.error("No rows to export");
+        return;
       }
 
-      const blob = await response.blob();
+      const headers = CROSSDOME_COLUMNS.filter((column) =>
+        rows.some((row: Record<string, unknown>) => column in row)
+      );
+
+      const csv = [
+        headers.join(","),
+        ...rows.map((row: Record<string, unknown>) =>
+          headers
+            .map((header) => {
+              const value = row[header] ?? "";
+              return `"${String(value).replace(/"/g, '""')}"`;
+            })
+            .join(",")
+        ),
+      ].join("\n");
+
+      const blob = new Blob([csv], {
+        type: "text/csv;charset=utf-8;",
+      });
+
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
+
       a.href = url;
-      a.download = `crossdome-full-results-${jobId}.csv`;
+      a.download = `crossdome-top-1000-${jobId}.csv`;
       a.click();
+
       URL.revokeObjectURL(url);
-      toast.success("Full results exported successfully");
+
+      toast.success("Top 50 CrossDome results exported successfully");
     } catch (err) {
       console.error("CSV export failed:", err);
       toast.error("CSV export failed");
@@ -244,7 +292,7 @@ export default function Results() {
               </Badge>
               <Button onClick={handleDownloadCSV} variant="outline" className="glass hover:bg-white/10">
                 <Download className="w-4 h-4 mr-2" />
-                Export full CSV
+                Export top 50 CSV
               </Button>
             </div>
           </div>
