@@ -12,11 +12,8 @@ export interface AlleleResponse {
 }
 
 export async function fetchAlleles(species: string, mhcClass: MhcClass): Promise<string[]> {
-  const url = new URL(`${API_BASE_URL}/api/v1/alleles`);
-  url.searchParams.set("specie", species);
-  url.searchParams.set("MHC_class", mhcClass);
-
-  const response = await fetch(url.toString());
+  const params = new URLSearchParams({ specie: species, MHC_class: mhcClass });
+  const response = await fetch(`${API_BASE_URL}/api/v1/alleles?${params.toString()}`);
   const data = (await response.json()) as AlleleResponse;
 
   if (!response.ok || data.status !== "ok") {
