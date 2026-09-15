@@ -211,6 +211,13 @@ def _add_expression(df: pd.DataFrame, bio_dir: Path):
     if not required_annot.issubset(annot.columns) or "ensembl_id" not in hpa.columns:
         return df, pd.DataFrame()
 
+    # peptide_annotation.parquet has one row per originating gene/paralog for a
+    # given peptide (e.g. one peptide can map to multiple MAGE-A paralogs), so
+    # merging without deduping fans a single scored row into several
+    # duplicate-looking rows that share the same rank/score.
+    annot = annot.drop_duplicates(subset=["peptide_sequence"], keep="first")
+    hpa = hpa.drop_duplicates(subset=["ensembl_id"], keep="first")
+
     merged = df.merge(
         annot,
         left_on="subject",
