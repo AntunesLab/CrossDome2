@@ -14,4 +14,4 @@ RUN pip install --no-cache-dir statsmodels==0.15.0
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 EXPOSE 5000
-CMD ["gunicorn", "-b", "0.0.0.0:5000", "app:create_app()"]
+CMD ["gunicorn", "-b", "0.0.0.0:5000", "--timeout", "300", "app:create_app()"]
