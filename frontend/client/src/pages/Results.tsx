@@ -399,9 +399,9 @@ export default function Results() {
                       <th className="px-4 py-3 text-left text-sm font-semibold">Rank</th>
                       <th className="px-4 py-3 text-left text-sm font-semibold">Query</th>
                       <th className="px-4 py-3 text-left text-sm font-semibold">Subject</th>
-                      <th className="px-4 py-3 text-right text-sm font-semibold">RdS</th>
-                      <th className="px-4 py-3 text-right text-sm font-semibold">RdS μ</th>
-                      <th className="px-4 py-3 text-right text-sm font-semibold">RdS σ</th>
+                      <th className="px-4 py-3 text-right text-sm font-semibold">RDS</th>
+                      <th className="px-4 py-3 text-right text-sm font-semibold">RDS μ</th>
+                      <th className="px-4 py-3 text-right text-sm font-semibold">RDS σ</th>
                       <th className="px-4 py-3 text-right text-sm font-semibold">Z-score</th>
                       <th className="px-4 py-3 text-right text-sm font-semibold">P-value</th>
                       <th className="px-4 py-3 text-right text-sm font-semibold">Adj. P-value</th>

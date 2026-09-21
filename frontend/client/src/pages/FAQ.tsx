@@ -29,9 +29,9 @@ const workflowSteps = [
       "Each query is compared only with background peptides of the same length. For example, an 8-mer is compared with 8-mers and a 15-mer with 15-mers.",
   },
   {
-    title: "Calculate and rank RdS",
+    title: "Calculate and rank RDS",
     description:
-      "CrossDome calculates the Relatedness Score (RdS) from amino-acid physicochemical similarity. Lower RdS values indicate more similar peptide pairs.",
+      "CrossDome calculates the Relatedness Distance Score (RDS), the physicochemical distance between the query peptide and each putative off-target peptide. Lower RDS values indicate greater physicochemical similarity.",
   },
   {
     title: "Review and download results",
@@ -44,7 +44,7 @@ const frequentlyAskedQuestions = [
   {
     question: "Which analysis should I select?",
     answer:
-      "Use Human analysis to screen a peptide against human immunopeptidomics data and obtain human-specific annotations when available. Use Other species for mouse, rat, swine, bovine, chicken, canine, or humanized backgrounds. Use Compare peptides to calculate RdS directly between peptide sequences without a database background.",
+      "Use Human analysis to screen a peptide against human immunopeptidomics data and obtain human-specific annotations when available. Use Other species for mouse, rat, swine, bovine, chicken, canine, or humanized backgrounds. Use Compare peptides to calculate RDS directly between peptide sequences without a database background.",
   },
   {
     question: "What peptide lengths are supported?",
@@ -57,9 +57,14 @@ const frequentlyAskedQuestions = [
       "Use one-letter amino-acid codes and standard residues only: A, C, D, E, F, G, H, I, K, L, M, N, P, Q, R, S, T, V, W, and Y. Text entries may be separated by commas or line breaks. CSV and TXT files are also accepted.",
   },
   {
-    question: "How do I interpret RdS?",
+    question: "How do I interpret RDS?",
     answer:
-      "RdS measures peptide relatedness based on amino-acid physicochemical properties. Lower values represent greater similarity to the query peptide and therefore higher priority for review. RdS is a screening metric and does not by itself demonstrate experimental T-cell cross-reactivity.",
+      "RDS (Relatedness Distance Score) quantifies the physicochemical distance between a query peptide and a putative off-target peptide, based on amino-acid biochemical properties represented in a multidimensional embedding space. Lower values indicate greater biochemical similarity and therefore higher priority for review. The RDS allows estimating the biochemical similarity between peptides, which is a proxy for estimating the likelihood of T-cell cross-reactivity by molecular mimicry. Such prediction does not guarantee experimental T-cell cross-reactivity, as this outcome depends on other factors including TCR specificity, antigen expression levels, etc.",
+  },
+  {
+    question: "What does RDS stand for, and why did the name change from RdS?",
+    answer:
+      "RDS stands for Relatedness Distance Score. The terminology was revised in CrossDome 2.0 to more accurately describe the metric's distance-based nature and to avoid ambiguity in its interpretation; the underlying mathematical formulation is unchanged from the original CrossDome publication.",
   },
   {
     question: "Why are expression plots available only for human analyses?",
@@ -69,7 +74,7 @@ const frequentlyAskedQuestions = [
   {
     question: "Why are some prediction values missing?",
     answer:
-      "Binding and immunogenicity scores are displayed only when prediction data are available for the peptide and selected allele. Missing values do not prevent RdS calculation or ranking.",
+      "Binding and immunogenicity scores are displayed only when prediction data are available for the peptide and selected allele. Missing values do not prevent RDS calculation or ranking.",
   },
   {
     question: "Can CrossDome results be treated as proof of cross-reactivity?",
@@ -116,7 +121,7 @@ export default function FAQ() {
                 <h3 className="text-3xl font-bold text-white">How the workflow works</h3>
                 <p className="mt-2 text-slate-300">
                   CrossDome compares query peptides with the selected peptide/MHC background, calculates
-                  RdS, and ranks candidate off-targets for review.
+                  RDS, and ranks candidate off-targets for review.
                 </p>
               </div>
             </div>

@@ -64,7 +64,7 @@ export default function Home() {
             </div>
             <h3 className="text-3xl font-semibold text-white">Compare peptides</h3>
             <p className="text-slate-300 mt-2">
-              Calculate the Relatedness Score (RdS) between two peptide sequences of interest to
+              Calculate the Relatedness Distance Score (RDS) between two peptide sequences of interest to
               measure their biochemical similarity without a species background or expression analysis.
             </p>
             <Button className="w-full bg-[#c9252d] hover:bg-[#a91d24] text-white" onClick={() => setLocation("/compare")}>
@@ -79,7 +79,7 @@ export default function Home() {
               <Database className="w-5 h-5 text-[#58a9ee]" />
               <p className="text-slate-300 text-sm">
                 Use the three entry points above depending on your analysis goal: human off-target
-                screening, species-specific peptide/MHC background search, or direct peptide-to-peptide RdS comparison.
+                screening, species-specific peptide/MHC background search, or direct peptide-to-peptide RDS comparison.
               </p>
             </div>
           </Card>
