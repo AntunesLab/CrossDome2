@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 
 // Replace these with the exact filenames in your public folder.
 const CROSSDOME_LOGO_SRC = "/CrossDome2-logo.gif";
-const UH_LOGO_SRC = "/uh-logo.png";
+const UH_LOGO_SRC = "/UH-Secondary-Extensions-CNRCS_RGB_horizontal-reverse-red.png";
 const LAB_LOGO_SRC = "/antunes-lab-logo.gif";
 
 
