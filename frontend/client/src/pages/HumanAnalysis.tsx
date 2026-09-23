@@ -114,7 +114,7 @@ export default function HumanAnalysis() {
                 <Textarea
                   value={subjectText}
                   onChange={(e) => setSubjectText(e.target.value)}
-                  placeholder="LLFGYPVYV, ACDEFGHIK, YLLPAIVHI"
+                  placeholder="EVDPIGHLY, SLLMWITQC, FMNKFIYEI"
                   className="min-h-32 glass"
                 />
               ) : (
