@@ -19,10 +19,10 @@ export default function Home() {
               CrossDome 2.0
             </h2>
             <p className="text-xl text-slate-300 max-w-4xl">
-              Off-target toxicity prediction and cross-reactivity analysis. 
-              
-              CrossDome 2.0 supports T-cell-based immunotherapy safety analysis by identifying peptide sequences with
-              potential cross-reactivity against human and species-specific immunopeptidomics databases.
+              Off-target toxicity prediction and cross-reactivity analysis.
+
+              CrossDome 2.0 supports safety analysis for T-cell-based immunotherapy and vaccine design, by
+              identifying potentially cross-reactive peptides across reference immunopeptidomics datasets.
             </p>
           </div>
 
