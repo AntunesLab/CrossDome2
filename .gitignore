@@ -26,3 +26,6 @@ dist/
 build/
 .cache/
 coverage/
+
+# Local planning/scratch notes, not for the public repo
+TODO.md
