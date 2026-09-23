@@ -8,7 +8,7 @@ import { ArrowLeft, Download, Loader2, AlertCircle, Info } from "lucide-react";
 import { API_BASE_URL } from "@/lib/api";
 import { Header, PageShell } from "./shared";
 
-const DISPLAY_ROWS = 30;
+const DISPLAY_ROWS = 50;
 
 const DEFAULT_BINDING_TOOLS = [
   "BigMHC-EL",

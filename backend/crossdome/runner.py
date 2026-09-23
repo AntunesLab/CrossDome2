@@ -92,7 +92,7 @@ def _save_human_outputs(result, output_dir: Path) -> dict[str, Any]:
         filename = "expression_heatmap.png"
         fig = generate_expression_heatmap(
             result.expression_matrix,
-            top_n=15,
+            top_n=50,
             title="Peptide expression and tissue specificity",
         )
         fig.savefig(output_dir / filename, dpi=250, bbox_inches="tight")
@@ -110,7 +110,7 @@ def _save_human_outputs(result, output_dir: Path) -> dict[str, Any]:
                 result.result,
                 binding_tool=binding,
                 immunogenicity_tool=immuno,
-                top_n=30,
+                top_n=50,
             )
             fig.savefig(output_dir / filename, dpi=250, bbox_inches="tight")
             plt.close(fig)
