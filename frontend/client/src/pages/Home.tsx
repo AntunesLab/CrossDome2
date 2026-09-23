@@ -78,8 +78,8 @@ export default function Home() {
             <div className="flex flex-col md:flex-row gap-3 md:items-center">
               <Database className="w-5 h-5 text-[#58a9ee]" />
               <p className="text-slate-300 text-sm">
-                Use the three entry points above depending on your analysis goal: human off-target
-                screening, species-specific peptide/MHC background search, or direct peptide-to-peptide RDS comparison.
+                Use one of three modes above depending on your goal: human off-target
+                screening, species-specific peptide search, or direct peptide-to-peptide RDS comparison.
               </p>
             </div>
           </Card>
