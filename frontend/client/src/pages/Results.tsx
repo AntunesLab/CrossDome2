@@ -237,7 +237,7 @@ export default function Results() {
 
       URL.revokeObjectURL(url);
 
-      toast.success("Top 50 CrossDome results exported successfully");
+      toast.success("CrossDome results exported successfully");
     } catch (err) {
       console.error("CSV export failed:", err);
       toast.error("CSV export failed");
@@ -292,7 +292,7 @@ export default function Results() {
               </Badge>
               <Button onClick={handleDownloadCSV} variant="outline" className="glass hover:bg-white/10">
                 <Download className="w-4 h-4 mr-2" />
-                Export top 50 CSV
+                Export CSV
               </Button>
             </div>
           </div>
