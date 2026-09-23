@@ -65,7 +65,7 @@ export default function Home() {
             <h3 className="text-3xl font-semibold text-white">Compare peptides</h3>
             <p className="text-slate-300 mt-2">
               Calculate the Relatedness Distance Score (RDS) between two peptide sequences of interest to
-              measure their biochemical similarity without a species background or expression analysis.
+              measure their biochemical similarity.
             </p>
             <Button className="w-full bg-[#c9252d] hover:bg-[#a91d24] text-white" onClick={() => setLocation("/compare")}>
               Start comparison <ArrowRight className="w-4 h-4 ml-2" />
