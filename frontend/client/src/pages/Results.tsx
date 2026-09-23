@@ -29,6 +29,7 @@ const CROSSDOME_COLUMNS = [
   "rank",
   "query",
   "subject",
+  "gene_donor",
   "relatedness_score",
   "rds_mu",
   "rds_sigma",
@@ -400,6 +401,9 @@ export default function Results() {
                       <th className="px-4 py-3 text-left text-sm font-semibold">Rank</th>
                       <th className="px-4 py-3 text-left text-sm font-semibold">Query</th>
                       <th className="px-4 py-3 text-left text-sm font-semibold">Subject</th>
+                      {isHumanAnalysis && (
+                        <th className="px-4 py-3 text-left text-sm font-semibold">Source</th>
+                      )}
                       <th className="px-4 py-3 text-right text-sm font-semibold">RDS</th>
                       <th className="px-4 py-3 text-right text-sm font-semibold">RDS μ</th>
                       <th className="px-4 py-3 text-right text-sm font-semibold">RDS σ</th>
@@ -430,6 +434,9 @@ export default function Results() {
                         </td>
                         <td className="px-4 py-3 text-sm font-mono text-primary">{row.query}</td>
                         <td className="px-4 py-3 text-sm font-mono text-accent">{row.subject}</td>
+                        {isHumanAnalysis && (
+                          <td className="px-4 py-3 text-sm">{row.gene_donor || "N/A"}</td>
+                        )}
                         <td className="px-4 py-3 text-sm text-right font-mono">{fmtNumber(row.relatedness_score, 3)}</td>
                         <td className="px-4 py-3 text-sm text-right font-mono">{fmtNumber(row.rds_mu, 3)}</td>
                         <td className="px-4 py-3 text-sm text-right font-mono">{fmtNumber(row.rds_sigma, 3)}</td>
