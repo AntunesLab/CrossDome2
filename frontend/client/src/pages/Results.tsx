@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { ArrowLeft, Download, Loader2, AlertCircle, Info } from "lucide-react";
 import { API_BASE_URL } from "@/lib/api";
+import { Header, PageShell } from "./shared";
 
 const DISPLAY_ROWS = 30;
 
@@ -246,60 +247,60 @@ export default function Results() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center relative overflow-hidden">
-        <div className="fixed inset-0 z-0 bg-background" />
-        <Card className="glass border-white/10 p-12 text-center space-y-4 relative z-10">
-          <Loader2 className="w-12 h-12 animate-spin text-primary mx-auto" />
-          <h2 className="text-2xl font-semibold">Processing analysis</h2>
-          <p className="text-muted-foreground">Please wait while CrossDome analyzes your data.</p>
-        </Card>
-      </div>
+      <PageShell>
+        <Header right={<Button variant="ghost" className="glass" onClick={() => setLocation("/")}><ArrowLeft className="w-4 h-4 mr-2" />Home</Button>} />
+        <main className="container pb-24 flex items-center justify-center min-h-[60vh]">
+          <Card className="glass border-white/10 p-12 text-center space-y-4">
+            <Loader2 className="w-12 h-12 animate-spin text-primary mx-auto" />
+            <h2 className="text-2xl font-semibold">Processing analysis</h2>
+            <p className="text-muted-foreground">Please wait while CrossDome analyzes your data.</p>
+          </Card>
+        </main>
+      </PageShell>
     );
   }
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center relative overflow-hidden">
-        <div className="fixed inset-0 z-0 bg-background" />
-        <Card className="glass border-white/10 p-12 text-center space-y-4 relative z-10 max-w-md">
-          <AlertCircle className="w-12 h-12 text-destructive mx-auto" />
-          <h2 className="text-2xl font-semibold">Error</h2>
-          <p className="text-muted-foreground">{error}</p>
-          <Button onClick={() => setLocation("/")} variant="outline" className="glass">
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Back
-          </Button>
-        </Card>
-      </div>
+      <PageShell>
+        <Header right={<Button variant="ghost" className="glass" onClick={() => setLocation("/")}><ArrowLeft className="w-4 h-4 mr-2" />Home</Button>} />
+        <main className="container pb-24 flex items-center justify-center min-h-[60vh]">
+          <Card className="glass border-white/10 p-12 text-center space-y-4 max-w-md">
+            <AlertCircle className="w-12 h-12 text-destructive mx-auto" />
+            <h2 className="text-2xl font-semibold">Error</h2>
+            <p className="text-muted-foreground">{error}</p>
+            <Button onClick={() => setLocation("/")} variant="outline" className="glass">
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Back
+            </Button>
+          </Card>
+        </main>
+      </PageShell>
     );
   }
 
   return (
-    <div className="min-h-screen relative overflow-hidden">
-      <div className="fixed inset-0 z-0 bg-background" />
-
-      <div className="relative z-10">
-        <header className="container py-8">
-          <div className="flex items-center justify-between gap-4">
+    <PageShell>
+      <Header
+        right={
+          <div className="flex flex-wrap items-center justify-end gap-4">
+            <Badge variant="outline" className="glass border-primary/30 text-primary">
+              Showing top {Math.min(DISPLAY_ROWS, totalRows)} of {totalRows} results
+            </Badge>
+            <Button onClick={handleDownloadCSV} variant="outline" className="glass hover:bg-white/10">
+              <Download className="w-4 h-4 mr-2" />
+              Export CSV
+            </Button>
             <Button variant="ghost" onClick={() => setLocation("/")} className="glass hover:bg-white/10">
               <ArrowLeft className="w-4 h-4 mr-2" />
               New analysis
             </Button>
-
-            <div className="flex items-center gap-4">
-              <Badge variant="outline" className="glass border-primary/30 text-primary">
-                Showing top {Math.min(DISPLAY_ROWS, totalRows)} of {totalRows} results
-              </Badge>
-              <Button onClick={handleDownloadCSV} variant="outline" className="glass hover:bg-white/10">
-                <Download className="w-4 h-4 mr-2" />
-                Export CSV
-              </Button>
-            </div>
           </div>
-        </header>
+        }
+      />
 
-        <section className="container pb-24">
-          <div className="space-y-6">
+      <main className="container pb-24">
+        <div className="space-y-6">
             <div className="text-center space-y-2">
               <h1 className="text-4xl font-bold">Analysis Results</h1>
               <p className="text-muted-foreground">
@@ -461,8 +462,7 @@ export default function Results() {
               </div>
             </Card>
           </div>
-        </section>
-      </div>
-    </div>
+        </main>
+    </PageShell>
   );
 }
