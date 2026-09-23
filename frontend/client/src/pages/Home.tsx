@@ -37,7 +37,7 @@ export default function Home() {
             <p className="text-slate-300 mt-2">
               Search a database of human immunopeptidomics for potential cross-reactive targets.
               Potential off-targets are further annotated with tissue expression data and
-              immunoinformatics predictions when available.
+              immunoinformatics predictions.
             </p>
             <Button className="w-full bg-[#1f75bb] hover:bg-[#17619d] text-white" onClick={() => setLocation("/human")}>
               Start human analysis <ArrowRight className="w-4 h-4 ml-2" />
