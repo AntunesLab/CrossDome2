@@ -4,6 +4,7 @@ import csv
 import io
 import math
 import os
+import time
 import uuid
 from pathlib import Path
 
@@ -143,7 +144,9 @@ def results(job_id):
     else:
         try:
             update_job(_db_path(), job_id, status="running")
+            started = time.monotonic()
             result = handle_request(job["instructions"], _bio_dir(), _output_dir(job_id))
+            result.setdefault("metadata", {})["runtime_seconds"] = round(time.monotonic() - started, 1)
             result["rows"] = _clean_rows(result["rows"])
             update_job(_db_path(), job_id, status="complete", result=result, error="")
         except Exception as exc:

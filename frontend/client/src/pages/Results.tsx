@@ -90,6 +90,7 @@ interface AnalysisMetadata {
   MHC_class?: string;
   allele?: string;
   outputs?: OutputsMeta;
+  runtime_seconds?: number;
   skipped_invalid_peptides_count?: number;
   weighted?: boolean;
   custom_database?: boolean;
@@ -103,6 +104,15 @@ function fmtNumber(value: unknown, digits = 3) {
 function fmtP(value: unknown) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return "N/A";
   return Number(value).toExponential(2);
+}
+
+function fmtRuntime(seconds: unknown) {
+  const value = Number(seconds);
+  if (seconds === null || seconds === undefined || Number.isNaN(value)) return null;
+  if (value < 60) return `${value.toFixed(1)}s`;
+  const minutes = Math.floor(value / 60);
+  const remainder = Math.round(value % 60);
+  return `${minutes}m ${remainder}s`;
 }
 
 function absoluteUrl(url?: string) {
@@ -309,6 +319,9 @@ export default function Results() {
               </p>
               {metadata.allele && (
                 <p className="text-sm text-muted-foreground">Allele: {metadata.allele}</p>
+              )}
+              {fmtRuntime(metadata.runtime_seconds) && (
+                <p className="text-sm text-muted-foreground">Runtime: {fmtRuntime(metadata.runtime_seconds)}</p>
               )}
               {metadata.skipped_invalid_peptides_count ? (
                 <Badge variant="outline" className="glass border-yellow-500/40 text-yellow-500">
