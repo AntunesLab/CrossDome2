@@ -224,7 +224,10 @@ def _add_expression(df: pd.DataFrame, bio_dir: Path):
         right_on="peptide_sequence",
         how="left",
     )
-    merged = merged.merge(hpa, on="ensembl_id", how="left")
+    # hpa also carries its own gene_donor column; dropping it here avoids a
+    # merge-suffix collision (gene_donor_x/gene_donor_y) that would otherwise
+    # silently erase the gene_donor column annot already provided.
+    merged = merged.merge(hpa.drop(columns=["gene_donor"]), on="ensembl_id", how="left")
 
     non_tissue = {
         "ensembl_id",
