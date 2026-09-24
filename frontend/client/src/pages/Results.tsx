@@ -11,18 +11,18 @@ import { Header, PageShell } from "./shared";
 const DISPLAY_ROWS = 50;
 
 const DEFAULT_BINDING_TOOLS = [
-  "BigMHC-EL",
-  "NetMHC",
-  "NetMHCpan",
   "NetMHCpan-EL",
-  "MixMHCpred",
+  "BigMHC-EL",
   "MHCflurryEL",
+  "MixMHCpred",
+  "NetMHCpan",
+  "NetMHC",
 ];
 
 const DEFAULT_IMMUNOGENICITY_TOOLS = [
-  "BigMHC_IM",
-  "PRIME",
   "DeepImmuno",
+  "PRIME",
+  "BigMHC-IM",
 ];
 
 const CROSSDOME_COLUMNS = [
@@ -43,9 +43,14 @@ const CROSSDOME_COLUMNS = [
   "num_mismatch",
   "peptide_length",
   "resource",
-  "BigMHC-EL",
   "NetMHCpan-EL",
+  "BigMHC-EL",
+  "MHCflurryEL",
+  "MixMHCpred",
+  "NetMHCpan",
   "DeepImmuno",
+  "PRIME",
+  "BigMHC-IM",
 ];
 
 interface ResultRow {

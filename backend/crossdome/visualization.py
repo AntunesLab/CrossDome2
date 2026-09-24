@@ -7,18 +7,18 @@ from matplotlib.gridspec import GridSpec
 
 # Prediction tools present in predictions.parquet.
 BINDING_TOOLS = [
-    "BigMHC-EL",
-    "NetMHC",
-    "NetMHCpan",
     "NetMHCpan-EL",
-    "MixMHCpred",
+    "BigMHC-EL",
     "MHCflurryEL",
+    "MixMHCpred",
+    "NetMHCpan",
+    "NetMHC",
 ]
 
 IMMUNOGENICITY_TOOLS = [
-    "BigMHC_IM",
-    "PRIME",
     "DeepImmuno",
+    "PRIME",
+    "BigMHC-IM",
     "TLImm",
 ]
 

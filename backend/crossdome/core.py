@@ -122,7 +122,7 @@ def _prediction_aliases() -> dict[str, list[str]]:
         "NetMHCpan-EL": ["NetMHCpan-EL", "NetMHCpan_EL", "netmhcpan_el"],
         "MixMHCpred": ["MixMHCpred", "mixmhcpred"],
         "MHCflurryEL": ["MHCflurryEL", "mhcflurryel", "mhcflurry_el"],
-        "BigMHC_IM": ["BigMHC_IM", "BigMHC-IM", "bigmhc_im"],
+        "BigMHC-IM": ["BigMHC-IM", "BigMHC_IM", "bigmhc_im"],
         "PRIME": ["PRIME", "prime"],
         "DeepImmuno": ["DeepImmuno", "deepimmuno", "deep_immuno"],
         "TLImm": ["TLImm", "tlimm", "tl_imm"],
@@ -145,7 +145,7 @@ def _merge_predictions(df: pd.DataFrame, bio_dir: Path, allele: str) -> pd.DataF
     Merge all prediction tools present in predictions.parquet.
 
     The user's current table contains:
-      BigMHC-EL, BigMHC_IM, NetMHC, NetMHCpan, NetMHCpan-EL,
+      BigMHC-EL, BigMHC-IM, NetMHC, NetMHCpan, NetMHCpan-EL,
       MixMHCpred, MHCflurryEL, PRIME, DeepImmuno, TLImm,
       plus prediction percentile columns.
     """
