@@ -31,6 +31,20 @@ export default function SpeciesAnalysis() {
   const [isLoadingAlleles, setIsLoadingAlleles] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const availableClasses = useMemo(
+    () => NON_HUMAN_SPECIES.find((item) => item.value === species)?.classes ?? MHC_CLASSES.map((c) => c.value),
+    [species],
+  );
+
+  // Some species only have peptide data for one MHC class (e.g. Humanized is
+  // Class II only). When switching species, fall back to a class that
+  // actually has alleles instead of leaving the user on an empty dropdown.
+  useEffect(() => {
+    if (!availableClasses.includes(mhcClass)) {
+      setMhcClass(availableClasses[0]);
+    }
+  }, [availableClasses, mhcClass]);
+
   useEffect(() => {
     setSelectedAllele("");
     setAlleleQuery("");
@@ -138,7 +152,11 @@ export default function SpeciesAnalysis() {
                 <Label>MHC class</Label>
                 <Select value={mhcClass} onValueChange={(v) => setMhcClass(v as MhcClass)}>
                   <SelectTrigger className="glass"><SelectValue /></SelectTrigger>
-                  <SelectContent>{MHC_CLASSES.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent>
+                  <SelectContent>
+                    {MHC_CLASSES.filter((item) => availableClasses.includes(item.value)).map((item) => (
+                      <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>
+                    ))}
+                  </SelectContent>
                 </Select>
               </div>
               <div className="space-y-2">
