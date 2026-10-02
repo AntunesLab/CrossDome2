@@ -18,7 +18,7 @@ The source bundle intentionally does **not** duplicate the production CrossDome 
 
    Only combinations that exist in your production database need to be present. Each file must contain at least `peptide_sequence` and `hla_allele`. `peptide_length` and `resource` are recommended.
 
-2. RdS distribution parameters:
+2. RDS distribution parameters:
 
    - `rds_length_parameters.parquet`, **or**
    - `rds_length_parameters.csv`
@@ -29,7 +29,7 @@ The source bundle intentionally does **not** duplicate the production CrossDome 
 
    CrossDome 2.1 deliberately does not fall back to the old global 9-mer mean/sigma. If a peptide length has no calibrated row, the analysis stops with an explicit error.
 
-3. RdS biochemical scoring data. Use either:
+3. RDS biochemical scoring data. Use either:
 
    - `sysdata.rda` containing `MDS_COMPONENTS` and `BLOSUM80`, or
    - `MDS_COMPONENTS.csv` plus `BLOSUM80.csv`.
@@ -40,4 +40,4 @@ The source bundle intentionally does **not** duplicate the production CrossDome 
 - `hpa_database.parquet` — gene/tissue expression matrix keyed by `ensembl_id`.
 - `predictions.parquet` — peptide prediction table. CrossDome searches common aliases for peptide, allele, BigMHC-EL, NetMHCpan-EL, DeepImmuno, and TLImm columns.
 
-If these optional files are missing, the core RdS analysis still runs. The corresponding heatmap or prediction plots are simply omitted.
+If these optional files are missing, the core RDS analysis still runs. The corresponding heatmap or prediction plots are simply omitted.

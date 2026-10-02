@@ -5,7 +5,7 @@ This is a clean source bundle for the current CrossDome workflow. It combines th
 ## What is included
 
 - Same-length peptide comparison for 8–25 amino acid peptides
-- Length-specific RdS `mu`, `sigma`, p-value thresholds, z-scores, p-values, BH-adjusted p-values, and ranks
+- Length-specific RDS `mu`, `sigma`, p-value thresholds, z-scores, p-values, BH-adjusted p-values, and ranks
 - Human, humanized, mouse, rat, swine, bovine, chicken, and dog database naming support
 - MHC class I and II database selection
 - Optional custom peptide database upload
@@ -18,7 +18,7 @@ This is a clean source bundle for the current CrossDome workflow. It combines th
 - SQLite job storage
 - Docker files for local deployment
 
-The production peptide databases and calibrated RdS parameter file are **not fabricated or bundled here**. Copy your current validated files into `backend/bio-database/`; see that directory's README.
+The production peptide databases and calibrated RDS parameter file are **not fabricated or bundled here**. Copy your current validated files into `backend/bio-database/`; see that directory's README.
 
 ## Directory layout
 
@@ -149,10 +149,10 @@ python crossdome2.py compare 'LLFGYPVYV,ACDEFGHIK' 'LLFGYPIYV,ACDEYGHIK' \
 
 ## Statistical behavior
 
-For every valid peptide pair, lower RdS means greater biochemical similarity. The z-score is calculated from the calibrated distribution for that peptide length:
+For every valid peptide pair, lower RDS means greater biochemical similarity. The z-score is calculated from the calibrated distribution for that peptide length:
 
 ```text
-z = (RdS - rds_mu) / rds_sigma
+z = (RDS - rds_mu) / rds_sigma
 p = NormalCDF(z)
 ```
 
@@ -177,4 +177,4 @@ Human analysis can produce:
 
 The tissue-specificity summary plot from older frontend versions is intentionally not part of 2.1.
 
-Other-species and compare modes show RdS/statistical results only.
+Other-species and compare modes show RDS/statistical results only.

@@ -5,6 +5,7 @@ import {
   BookOpen,
   CheckCircle2,
   FileText,
+  Github,
   HelpCircle,
   Info,
 } from "lucide-react";
@@ -38,6 +39,22 @@ const workflowSteps = [
     description:
       "The results page displays the top 30 candidates. The complete ranked table can be downloaded as a CSV file. Human analyses may also include expression and prediction outputs.",
   },
+];
+
+const localDeploymentFeatures = [
+  "Same-length peptide comparison for 8–25 amino acid peptides",
+  "Length-specific RDS mu, sigma, p-value thresholds, z-scores, p-values, BH-adjusted p-values, and ranks",
+  "Human, humanized, mouse, rat, pig, cattle, chicken, and dog database support",
+  "MHC class I and II database selection",
+  "Optional custom peptide database upload",
+  "Optional TCR positional weights",
+  "Human-only expression heatmap",
+  "Human-only selectable predictions: BigMHC-EL / NetMHCpan-EL with DeepImmuno / TLImm",
+  "Direct peptide-to-peptide/list comparison",
+  "Top-30 browser table plus full CSV download",
+  "REST API and command-line interface",
+  "SQLite job storage",
+  "Docker files for local deployment",
 ];
 
 const frequentlyAskedQuestions = [
@@ -176,6 +193,39 @@ export default function FAQ() {
                   <FileText className="mt-0.5 h-4 w-4 shrink-0" />
                   Add the complete author, journal, year, volume, pages, and DOI information from your preferred citation manager or the publication record.
                 </p>
+              </div>
+            </div>
+          </Card>
+        </section>
+
+        <section className="mx-auto mt-6 max-w-6xl">
+          <Card className="glass border-white/10 bg-[#071c35]/70 p-6 md:p-8">
+            <div className="flex flex-col gap-5 md:flex-row md:items-start">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-[#c9252d]/40 bg-[#c9252d]/20">
+                <Github className="h-6 w-6 text-[#ff636a]" />
+              </div>
+              <div className="space-y-3">
+                <h3 className="text-2xl font-bold text-white">How to run CrossDome locally</h3>
+                <p className="text-slate-300">
+                  CrossDome 2.0 is open source and can be deployed on your own infrastructure. The repository includes the backend, frontend, and Docker files needed for a local or self-hosted deployment.
+                </p>
+                <div className="rounded-xl border border-white/10 bg-black/20 p-4">
+                  <p className="mb-2 font-semibold text-slate-100">What is included</p>
+                  <ul className="grid gap-x-6 gap-y-1.5 text-sm text-slate-300 sm:grid-cols-2">
+                    {localDeploymentFeatures.map((feature) => (
+                      <li key={feature} className="flex items-start gap-2">
+                        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[#58a9ee]" />
+                        {feature}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <Button asChild className="mt-1">
+                  <a href="https://github.com/AntunesLab/CrossDome2" target="_blank" rel="noreferrer">
+                    <Github className="h-4 w-4" />
+                    View the CrossDome2 repository on GitHub
+                  </a>
+                </Button>
               </div>
             </div>
           </Card>

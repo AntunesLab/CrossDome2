@@ -125,28 +125,28 @@ export default function SpeciesAnalysis() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>MHC class</Label>
-                <Select value={mhcClass} onValueChange={(v) => setMhcClass(v as MhcClass)}>
-                  <SelectTrigger className="glass"><SelectValue /></SelectTrigger>
-                  <SelectContent>{MHC_CLASSES.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent>
+                <Label>Allele</Label>
+                <Select value={selectedAllele} onValueChange={setSelectedAllele} disabled={isLoadingAlleles || filteredAlleles.length === 0}>
+                  <SelectTrigger className="glass"><SelectValue placeholder={isLoadingAlleles ? "Loading alleles..." : filteredAlleles.length ? "Select allele" : "No alleles found"} /></SelectTrigger>
+                  <SelectContent>{filteredAlleles.map((allele) => <SelectItem key={allele} value={allele}>{allele}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
             </div>
 
             <div className="grid md:grid-cols-2 gap-6">
               <div className="space-y-2">
+                <Label>MHC class</Label>
+                <Select value={mhcClass} onValueChange={(v) => setMhcClass(v as MhcClass)}>
+                  <SelectTrigger className="glass"><SelectValue /></SelectTrigger>
+                  <SelectContent>{MHC_CLASSES.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
                 <Label>Search allele</Label>
                 <div className="relative">
                   <Search className="w-4 h-4 absolute left-3 top-3 text-muted-foreground" />
                   <Input className="glass pl-9" value={alleleQuery} onChange={(e) => setAlleleQuery(e.target.value)} placeholder="Search available alleles" />
                 </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Allele</Label>
-                <Select value={selectedAllele} onValueChange={setSelectedAllele} disabled={isLoadingAlleles || filteredAlleles.length === 0}>
-                  <SelectTrigger className="glass"><SelectValue placeholder={isLoadingAlleles ? "Loading alleles..." : filteredAlleles.length ? "Select allele" : "No alleles found"} /></SelectTrigger>
-                  <SelectContent>{filteredAlleles.map((allele) => <SelectItem key={allele} value={allele}>{allele}</SelectItem>)}</SelectContent>
-                </Select>
               </div>
             </div>
 
