@@ -22,6 +22,44 @@ IMMUNOGENICITY_TOOLS = [
     "TLImm",
 ]
 
+# Unit/scale of each tool's score, used to annotate plot axes. NetMHC and
+# NetMHCpan report binding affinity in nM (lower is stronger); the eluted
+# ligand (EL) and immunogenicity tools report bounded scores; MixMHCpred
+# reports a log-likelihood score that can be negative.
+TOOL_UNITS = {
+    "NetMHCpan-EL": "EL score, 0-1",
+    "BigMHC-EL": "EL score, 0-1",
+    "MHCflurryEL": "EL score, 0-1",
+    "MixMHCpred": "log score",
+    "NetMHCpan": "nM, lower = stronger",
+    "NetMHC": "nM, lower = stronger",
+    "DeepImmuno": "score, 0-1",
+    "PRIME": "score, 0-1",
+    "BigMHC-IM": "score, 0-1",
+    "TLImm": "score, 0-1",
+}
+
+
+def tool_axis_label(tool: str) -> str:
+    """Tool name with its unit/scale, e.g. ``NetMHC (nM, lower = stronger)``."""
+    unit = TOOL_UNITS.get(tool)
+    return f"{tool} ({unit})" if unit else str(tool)
+
+
+# Affinities (nM) span four orders of magnitude, so they are drawn on a log y
+# axis. Every other tool reports a bounded score and stays linear.
+LOG_SCALE_TOOLS = {"NetMHC", "NetMHCpan"}
+
+
+def _panel_series(data: pd.DataFrame, tool: str) -> tuple[pd.Series, str, bool]:
+    """Pick the column, axis label and y scale for one panel."""
+    if tool in data.columns:
+        values = pd.to_numeric(data[tool], errors="coerce")
+    else:
+        values = pd.Series(np.nan, index=data.index)
+
+    return values, tool_axis_label(tool), tool in LOG_SCALE_TOOLS
+
 
 def _numeric_expression_matrix(expression_matrix: pd.DataFrame, top_n: int = 15) -> pd.DataFrame:
     matrix = expression_matrix.copy()
@@ -144,21 +182,24 @@ def plot_prediction_tools(
     x = np.arange(len(data))
     fig, axes = plt.subplots(2, 1, figsize=(14, 8), sharex=True)
 
+    # Panel order matches the frontend dropdowns: binding on top,
+    # immunogenicity below.
     panels = [
-        (axes[0], immunogenicity_tool),
-        (axes[1], binding_tool),
+        (axes[0], binding_tool),
+        (axes[1], immunogenicity_tool),
     ]
 
     for ax, col in panels:
-        if col not in data.columns:
-            values = pd.Series(np.nan, index=data.index)
-        else:
-            values = pd.to_numeric(data[col], errors="coerce")
+        values, label, use_log = _panel_series(data, col)
 
         valid = values.notna()
         ax.scatter(x[valid.to_numpy()], values[valid].to_numpy())
-        ax.set_ylabel(col)
+        ax.set_ylabel(label)
         ax.grid(alpha=0.25)
+
+        # A log axis cannot show zero or negative values; keep those panels linear.
+        if use_log and valid.any() and values[valid].min() > 0:
+            ax.set_yscale("log")
 
         if not valid.any():
             ax.text(
@@ -170,7 +211,7 @@ def plot_prediction_tools(
                 va="center",
             )
 
-    axes[0].set_title(f"{immunogenicity_tool} and {binding_tool} predictions")
+    axes[0].set_title(f"{binding_tool} and {immunogenicity_tool} predictions")
     axes[1].set_xticks(x)
     axes[1].set_xticklabels(data["subject"].astype(str), rotation=90)
     axes[1].set_xlabel("Peptide")
