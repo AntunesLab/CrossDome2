@@ -12,7 +12,7 @@ The source bundle intentionally does **not** duplicate the production CrossDome 
    - `mouse_classI.parquet` / `mouse_classII.parquet`
    - `rat_classI.parquet` / `rat_classII.parquet`
    - `swine_classI.parquet` / `swine_classII.parquet`
-   - `bovine_classI.parquet` / `bovine_classII.parquet`
+   - `bovine_classII.parquet` (cattle data is BoLA-DRB3, a class II locus; there is no class I file)
    - `chicken_classI.parquet` / `chicken_classII.parquet`
    - `dogsl_classI.parquet` / `dogsl_classII.parquet`
 

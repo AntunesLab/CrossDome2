@@ -9,14 +9,16 @@ import type { MhcClass, Species } from "./api";
 //
 // `classes` lists only the MHC classes that actually have peptide data for that
 // species in the production database — `humanized_classI.parquet` exists but is
-// empty, and bovine/swine/rat/dogsl have no classII file at all. Keeping this in
-// sync with `backend/bio-database/` avoids landing the user on a species+class
-// combination with no alleles to select.
+// empty, swine/rat/dogsl have no classII file at all, and cattle is classII only
+// (its data is BoLA-DRB3, a class II locus, which until 2026-10-13 was filed as
+// `bovine_classI.parquet`). Keeping this in sync with `backend/bio-database/`
+// avoids landing the user on a species+class combination with no alleles to
+// select.
 export const ANALYSIS_SPECIES: Array<{ value: Species; label: string; hasExpression: boolean; classes: MhcClass[] }> = [
   { value: "human", label: "Human", hasExpression: true, classes: ["I", "II"] },
   { value: "mouse", label: "Mouse", hasExpression: false, classes: ["I", "II"] },
   { value: "rat", label: "Rat", hasExpression: false, classes: ["I"] },
-  { value: "bovine", label: "Cattle", hasExpression: false, classes: ["I"] },
+  { value: "bovine", label: "Cattle", hasExpression: false, classes: ["II"] },
   { value: "chicken", label: "Chicken", hasExpression: false, classes: ["I", "II"] },
   { value: "dogsl", label: "Dog", hasExpression: false, classes: ["I"] },
   { value: "swine", label: "Pig", hasExpression: false, classes: ["I"] },
