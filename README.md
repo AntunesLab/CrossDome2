@@ -89,7 +89,7 @@ In a second terminal:
 
 ```bash
 cd CrossDome-2/frontend
-npm --version (install npm if neeeded)
+npm --version
 npm install
 cp .env.example .env
 npm run dev
