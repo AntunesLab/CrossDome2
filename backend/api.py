@@ -70,6 +70,28 @@ def _rows_for_query(rows: list, query: str | None) -> list:
     return [row for row in rows if row.get("query") == query]
 
 
+def _limit_rows_per_query(rows: list, limit: int | None) -> list:
+    """Keep each query peptide's first `limit` rows.
+
+    Rows within a query are already ordered by rank, so this is that query's
+    top hits. The limit applies per query rather than to the whole file, so a
+    multi-peptide export stays representative instead of running out of rows
+    inside the first peptide. A missing or non-positive limit keeps everything.
+    """
+    if not limit or limit <= 0:
+        return rows
+
+    kept: list = []
+    counts: dict = {}
+    for row in rows:
+        query = row.get("query")
+        if counts.get(query, 0) >= limit:
+            continue
+        counts[query] = counts.get(query, 0) + 1
+        kept.append(row)
+    return kept
+
+
 def _db_path():
     return current_app.config["JOB_DB"]
 
@@ -228,6 +250,7 @@ def download_csv(job_id):
         return jsonify({"status": "error", "message": "Results are not available."}), 404
     query = request.args.get("query")
     rows = _rows_for_query(job["result"].get("rows", []), query)
+    rows = _limit_rows_per_query(rows, request.args.get("limit", type=int))
     if not rows:
         return jsonify({"status": "error", "message": "No rows available."}), 404
 

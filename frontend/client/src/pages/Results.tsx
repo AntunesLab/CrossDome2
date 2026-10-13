@@ -10,6 +10,10 @@ import { Header, PageShell } from "./shared";
 
 const DISPLAY_ROWS = 50;
 
+// Rows per query peptide in the CSV export. Each query contributes its own top
+// hits, so a multi-peptide job exports this many rows per peptide, not in total.
+const EXPORT_ROWS_PER_QUERY = 1000;
+
 const DEFAULT_BINDING_TOOLS = [
   "NetMHCpan-EL",
   "BigMHC-EL",
@@ -234,13 +238,17 @@ export default function Results() {
     return figures.prediction_plots?.[key];
   }, [figures, bindingTool, immunogenicityTool]);
 
-  // The backend streams every column and every query peptide. The old
-  // client-side export rebuilt a 1000-row chunk, which held peptide #1 only.
+  // The backend builds the CSV with every column and streams it. The old
+  // client-side export took the first 1000 rows of the whole result, which was
+  // entirely the first peptide; the limit is now per query peptide.
   const handleDownloadCSV = (query?: string) => {
     if (!jobId || totalRows === 0) return;
-    const suffix = query ? `?query=${encodeURIComponent(query)}` : "";
-    window.location.href = `${API_BASE_URL}/api/v1/job/${jobId}/download.csv${suffix}`;
+    const params = new URLSearchParams({ limit: String(EXPORT_ROWS_PER_QUERY) });
+    if (query) params.set("query", query);
+    window.location.href = `${API_BASE_URL}/api/v1/job/${jobId}/download.csv?${params.toString()}`;
   };
+
+  const exportHint = `Top ${EXPORT_ROWS_PER_QUERY.toLocaleString()} rows per query peptide`;
 
   if (isLoading) {
     return (
@@ -292,7 +300,12 @@ export default function Results() {
                 </>
               )}
             </Badge>
-            <Button onClick={() => handleDownloadCSV()} variant="outline" className="glass hover:bg-white/10">
+            <Button
+              onClick={() => handleDownloadCSV()}
+              variant="outline"
+              className="glass hover:bg-white/10"
+              title={exportHint}
+            >
               <Download className="w-4 h-4 mr-2" />
               {queries.length > 1 ? `Export all ${queries.length} peptides` : "Export CSV"}
             </Button>
@@ -301,6 +314,7 @@ export default function Results() {
                 onClick={() => handleDownloadCSV(selectedQuery)}
                 variant="outline"
                 className="glass hover:bg-white/10"
+                title={exportHint}
               >
                 <Download className="w-4 h-4 mr-2" />
                 Export {selectedQuery}
@@ -517,6 +531,14 @@ export default function Results() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+
+              <div className="border-t border-white/10 px-4 py-3 text-sm text-muted-foreground">
+                Table shows the top {DISPLAY_ROWS} rows
+                {selectedQuery ? <> for <span className="font-mono">{selectedQuery}</span></> : null}. CSV
+                export includes the top {EXPORT_ROWS_PER_QUERY.toLocaleString()} rows per query peptide
+                {queries.length > 1 ? ` (${queries.length} peptides)` : ""}. For a complete table, use the
+                command-line tool (<span className="font-mono">crossdome2.py analyze</span>).
               </div>
             </Card>
           </div>
