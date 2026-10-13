@@ -25,34 +25,6 @@ const DEFAULT_IMMUNOGENICITY_TOOLS = [
   "BigMHC-IM",
 ];
 
-const CROSSDOME_COLUMNS = [
-  "rank",
-  "query",
-  "subject",
-  "gene_donor",
-  "relatedness_score",
-  "rds_mu",
-  "rds_sigma",
-  "rds_cutoff_p005",
-  "rds_cutoff_p001",
-  "zscore",
-  "pvalue",
-  "pvalue_adj",
-  "significant",
-  "num_positive",
-  "num_mismatch",
-  "peptide_length",
-  "resource",
-  "NetMHCpan-EL",
-  "BigMHC-EL",
-  "MHCflurryEL",
-  "MixMHCpred",
-  "NetMHCpan",
-  "DeepImmuno",
-  "PRIME",
-  "BigMHC-IM",
-];
-
 interface ResultRow {
   rank: number | null;
   query: string;
@@ -81,11 +53,23 @@ interface PredictionPlotMeta {
   url?: string;
 }
 
-interface OutputsMeta {
+interface FigureSet {
   expression_heatmap?: string;
   prediction_plots?: Record<string, PredictionPlotMeta>;
   binding_tools?: string[];
   immunogenicity_tools?: string[];
+}
+
+interface OutputsMeta extends FigureSet {
+  // One figure set per query peptide. Jobs created before this existed carry a
+  // single flat set on OutputsMeta itself.
+  per_query?: Record<string, FigureSet>;
+}
+
+interface QueryMeta {
+  query: string;
+  start: number;
+  n_rows: number;
 }
 
 interface AnalysisMetadata {
@@ -95,6 +79,7 @@ interface AnalysisMetadata {
   MHC_class?: string;
   allele?: string;
   outputs?: OutputsMeta;
+  queries?: QueryMeta[];
   runtime_seconds?: number;
   skipped_invalid_peptides_count?: number;
   weighted?: boolean;
@@ -133,9 +118,13 @@ export default function Results() {
 
   const [results, setResults] = useState<ResultRow[]>([]);
   const [totalRows, setTotalRows] = useState(0);
+  const [queryRows, setQueryRows] = useState(0);
+  const [queries, setQueries] = useState<QueryMeta[]>([]);
+  const [selectedQuery, setSelectedQuery] = useState("");
   const [outputs, setOutputs] = useState<OutputsMeta>({});
   const [metadata, setMetadata] = useState<AnalysisMetadata>({});
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingRows, setIsLoadingRows] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [bindingTool, setBindingTool] = useState(DEFAULT_BINDING_TOOLS[0]);
   const [immunogenicityTool, setImmunogenicityTool] = useState(DEFAULT_IMMUNOGENICITY_TOOLS[0]);
@@ -147,7 +136,7 @@ export default function Results() {
       return;
     }
 
-    const fetchResults = async () => {
+    const fetchMetadata = async () => {
       try {
         const analysisResponse = await fetch(`${API_BASE_URL}/api/v1/job/${jobId}/results`);
         const analysisData = await analysisResponse.json();
@@ -158,10 +147,15 @@ export default function Results() {
 
         const responseMetadata: AnalysisMetadata = analysisData.metadata || {};
         const responseOutputs: OutputsMeta = analysisData.outputs || responseMetadata.outputs || {};
+        const responseQueries = responseMetadata.queries || [];
 
         setTotalRows(analysisData.total_rows || 0);
         setMetadata(responseMetadata);
         setOutputs(responseOutputs);
+        setQueries(responseQueries);
+        // Compare mode has one global ranking and sends no query index; an
+        // empty selection then means "every row", which is what it wants.
+        setSelectedQuery(responseQueries[0]?.query ?? "");
 
         if (responseOutputs.binding_tools?.length) {
           setBindingTool(responseOutputs.binding_tools[0]);
@@ -169,17 +163,6 @@ export default function Results() {
         if (responseOutputs.immunogenicity_tools?.length) {
           setImmunogenicityTool(responseOutputs.immunogenicity_tools[0]);
         }
-
-        const resultsResponse = await fetch(
-          `${API_BASE_URL}/api/v1/job/${jobId}/results-chunked?start=0&end=${DISPLAY_ROWS}`
-        );
-        const resultsData = await resultsResponse.json();
-
-        if (!resultsResponse.ok || resultsData.status !== "success") {
-          throw new Error(resultsData.message || "Error loading results");
-        }
-
-        setResults(resultsData.rows || []);
       } catch (err) {
         console.error("Error fetching results:", err);
         const message = err instanceof Error ? err.message : "Error loading results";
@@ -190,12 +173,53 @@ export default function Results() {
       }
     };
 
-    fetchResults();
+    fetchMetadata();
   }, [jobId]);
+
+  // Row window for the selected query. start/end are relative to that query,
+  // so each peptide shows its own top rows instead of a slice of the first one.
+  useEffect(() => {
+    if (!jobId || isLoading || error) return;
+
+    const fetchRows = async () => {
+      setIsLoadingRows(true);
+      try {
+        const params = new URLSearchParams({ start: "0", end: String(DISPLAY_ROWS) });
+        if (selectedQuery) params.set("query", selectedQuery);
+
+        const resultsResponse = await fetch(
+          `${API_BASE_URL}/api/v1/job/${jobId}/results-chunked?${params.toString()}`
+        );
+        const resultsData = await resultsResponse.json();
+
+        if (!resultsResponse.ok || resultsData.status !== "success") {
+          throw new Error(resultsData.message || "Error loading results");
+        }
+
+        setResults(resultsData.rows || []);
+        setQueryRows(resultsData.lastRow || 0);
+      } catch (err) {
+        console.error("Error fetching rows:", err);
+        toast.error(err instanceof Error ? err.message : "Error loading results");
+      } finally {
+        setIsLoadingRows(false);
+      }
+    };
+
+    fetchRows();
+  }, [jobId, selectedQuery, isLoading, error]);
 
   const speciesValue = (metadata.specie || metadata.species || "").toLowerCase();
   const isCompareMode = metadata.mode === "compare";
   const isHumanAnalysis = !isCompareMode && speciesValue === "human";
+
+  const figures: FigureSet = useMemo(() => {
+    if (outputs.per_query) return outputs.per_query[selectedQuery] ?? {};
+    // Jobs created before per-query figures stored one flat set, generated from
+    // the first query only. Showing it for any other query would mislabel it.
+    const isFirstQuery = !selectedQuery || selectedQuery === queries[0]?.query;
+    return isFirstQuery ? outputs : {};
+  }, [outputs, selectedQuery, queries]);
 
   const bindingTools = outputs.binding_tools?.length
     ? outputs.binding_tools
@@ -207,58 +231,15 @@ export default function Results() {
 
   const selectedPredictionPlot = useMemo(() => {
     const key = `${bindingTool}__${immunogenicityTool}`;
-    return outputs.prediction_plots?.[key];
-  }, [outputs, bindingTool, immunogenicityTool]);
+    return figures.prediction_plots?.[key];
+  }, [figures, bindingTool, immunogenicityTool]);
 
-  const handleDownloadCSV = async () => {
+  // The backend streams every column and every query peptide. The old
+  // client-side export rebuilt a 1000-row chunk, which held peptide #1 only.
+  const handleDownloadCSV = (query?: string) => {
     if (!jobId || totalRows === 0) return;
-
-    try {
-      const response = await fetch(
-        `${API_BASE_URL}/api/v1/job/${jobId}/results-chunked?start=0&end=1000`
-      );
-      const data = await response.json();
-      const rows = data.rows || [];
-
-      if (rows.length === 0) {
-        toast.error("No rows to export");
-        return;
-      }
-
-      const headers = CROSSDOME_COLUMNS.filter((column) =>
-        rows.some((row: Record<string, unknown>) => column in row)
-      );
-
-      const csv = [
-        headers.join(","),
-        ...rows.map((row: Record<string, unknown>) =>
-          headers
-            .map((header) => {
-              const value = row[header] ?? "";
-              return `"${String(value).replace(/"/g, '""')}"`;
-            })
-            .join(",")
-        ),
-      ].join("\n");
-
-      const blob = new Blob([csv], {
-        type: "text/csv;charset=utf-8;",
-      });
-
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-
-      a.href = url;
-      a.download = `crossdome-top-1000-${jobId}.csv`;
-      a.click();
-
-      URL.revokeObjectURL(url);
-
-      toast.success("CrossDome results exported successfully");
-    } catch (err) {
-      console.error("CSV export failed:", err);
-      toast.error("CSV export failed");
-    }
+    const suffix = query ? `?query=${encodeURIComponent(query)}` : "";
+    window.location.href = `${API_BASE_URL}/api/v1/job/${jobId}/download.csv${suffix}`;
   };
 
   if (isLoading) {
@@ -301,12 +282,30 @@ export default function Results() {
         right={
           <div className="flex flex-wrap items-center justify-end gap-4">
             <Badge variant="outline" className="glass border-primary/30 text-primary">
-              Showing top {Math.min(DISPLAY_ROWS, totalRows)} of {totalRows} results
+              {isLoadingRows ? (
+                "Loading rows..."
+              ) : (
+                <>
+                  Showing top {Math.min(DISPLAY_ROWS, queryRows).toLocaleString()} of{" "}
+                  {queryRows.toLocaleString()}
+                  {selectedQuery ? ` for ${selectedQuery}` : " results"}
+                </>
+              )}
             </Badge>
-            <Button onClick={handleDownloadCSV} variant="outline" className="glass hover:bg-white/10">
+            <Button onClick={() => handleDownloadCSV()} variant="outline" className="glass hover:bg-white/10">
               <Download className="w-4 h-4 mr-2" />
-              Export CSV
+              {queries.length > 1 ? `Export all ${queries.length} peptides` : "Export CSV"}
             </Button>
+            {queries.length > 1 && (
+              <Button
+                onClick={() => handleDownloadCSV(selectedQuery)}
+                variant="outline"
+                className="glass hover:bg-white/10"
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Export {selectedQuery}
+              </Button>
+            )}
             <Button variant="ghost" onClick={() => setLocation("/")} className="glass hover:bg-white/10">
               <ArrowLeft className="w-4 h-4 mr-2" />
               New analysis
@@ -335,6 +334,29 @@ export default function Results() {
               ) : null}
             </div>
 
+            {queries.length > 1 && (
+              <Card className="glass border-white/10 p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                <div>
+                  <h2 className="text-lg font-semibold">Query peptide</h2>
+                  <p className="text-sm text-muted-foreground">
+                    This job scored {queries.length} query peptides. Each one has its own ranking,
+                    figures, and {totalRows.toLocaleString()} total rows across all peptides.
+                  </p>
+                </div>
+                <select
+                  value={selectedQuery}
+                  onChange={(e) => setSelectedQuery(e.target.value)}
+                  className="rounded-md bg-background border border-white/20 px-3 py-2 font-mono"
+                >
+                  {queries.map((item) => (
+                    <option key={item.query} value={item.query}>
+                      {item.query} ({item.n_rows.toLocaleString()} rows)
+                    </option>
+                  ))}
+                </select>
+              </Card>
+            )}
+
             {!isHumanAnalysis && !isCompareMode && (
               <Card className="glass border-white/10 p-4 flex gap-3 items-start">
                 <Info className="w-5 h-5 text-primary mt-0.5" />
@@ -347,22 +369,28 @@ export default function Results() {
               </Card>
             )}
 
-            {isHumanAnalysis && outputs.expression_heatmap && (
+            {isHumanAnalysis && figures.expression_heatmap && (
               <Card className="glass border-white/10 p-4">
-                <h2 className="text-xl font-semibold mb-4">Peptide expression and tissue specificity</h2>
+                <h2 className="text-xl font-semibold mb-4">
+                  Peptide expression and tissue specificity
+                  {selectedQuery && <span className="font-mono text-primary"> · {selectedQuery}</span>}
+                </h2>
                 <img
-                  src={absoluteUrl(outputs.expression_heatmap)}
+                  src={absoluteUrl(figures.expression_heatmap)}
                   alt="Peptide expression and tissue specificity"
                   className="w-full rounded-xl border border-white/10 bg-white"
                 />
               </Card>
             )}
 
-            {isHumanAnalysis && outputs.prediction_plots && Object.keys(outputs.prediction_plots).length > 0 && (
+            {isHumanAnalysis && figures.prediction_plots && Object.keys(figures.prediction_plots).length > 0 && (
               <Card className="glass border-white/10 p-4">
                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
                   <div>
-                    <h2 className="text-xl font-semibold">Binding and immunogenicity predictions</h2>
+                    <h2 className="text-xl font-semibold">
+                      Binding and immunogenicity predictions
+                      {selectedQuery && <span className="font-mono text-primary"> · {selectedQuery}</span>}
+                    </h2>
                     <p className="text-sm text-muted-foreground mt-1">
                       Select any prediction tools available for this allele.
                     </p>
@@ -411,7 +439,12 @@ export default function Results() {
               </Card>
             )}
 
-            <Card className="glass border-white/10 overflow-hidden">
+            <Card className="glass border-white/10 overflow-hidden relative">
+              {isLoadingRows && (
+                <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60">
+                  <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                </div>
+              )}
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead>

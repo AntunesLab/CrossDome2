@@ -76,7 +76,8 @@ def _available_tools(result_df: pd.DataFrame, tools: list[str]) -> list[str]:
     return available
 
 
-def _save_human_outputs(result, output_dir: Path) -> dict[str, Any]:
+def _save_human_outputs(result, output_dir: Path, query: str) -> dict[str, Any]:
+    """Write the expression and prediction figures for one query peptide."""
     output_dir.mkdir(parents=True, exist_ok=True)
 
     available_binding = _available_tools(result.result, BINDING_TOOLS)
@@ -89,11 +90,11 @@ def _save_human_outputs(result, output_dir: Path) -> dict[str, Any]:
     }
 
     if result.expression_matrix is not None and not result.expression_matrix.empty:
-        filename = "expression_heatmap.png"
+        filename = f"expression_heatmap_{query}.png"
         fig = generate_expression_heatmap(
             result.expression_matrix,
             top_n=50,
-            title="Peptide expression and tissue specificity",
+            title=f"Peptide expression and tissue specificity for {query}",
         )
         fig.savefig(output_dir / filename, dpi=250, bbox_inches="tight")
         plt.close(fig)
@@ -104,7 +105,8 @@ def _save_human_outputs(result, output_dir: Path) -> dict[str, Any]:
     for binding in available_binding:
         for immuno in available_immunogenicity:
             filename = (
-                f"prediction_{binding.replace('-', '_')}_{immuno.replace('-', '_')}.png"
+                f"prediction_{query}_{binding.replace('-', '_')}"
+                f"_{immuno.replace('-', '_')}.png"
             )
             fig = plot_prediction_tools(
                 result.result,
@@ -152,9 +154,15 @@ def run_analysis(
             )
 
     objects = []
-    outputs = {}
+    # binding_tools/immunogenicity_tools are the union over all queries, so they
+    # drive one stable pair of dropdowns; per_query holds each query's figures.
+    outputs: dict[str, Any] = {
+        "binding_tools": [],
+        "immunogenicity_tools": [],
+        "per_query": {},
+    }
 
-    for index, query in enumerate(query_peptides):
+    for query in query_peptides:
         is_human = species.lower() == "human"
 
         result = cross_compose(
@@ -173,11 +181,18 @@ def run_analysis(
             }
         )
 
-        # The frontend currently presents a single output plot set. Generate
-        # that set from the first query; every query still remains in the CSV.
-        if index == 0 and is_human and output_dir:
-            outputs = _save_human_outputs(result, Path(output_dir))
-            result.metadata["outputs"] = outputs
+        # One figure set per query. The frontend shows the set for the query
+        # selected on the results page. Skipped without an output_dir, which is
+        # how the command-line tool runs (CSV only, no figures).
+        if is_human and output_dir:
+            per_query = _save_human_outputs(result, Path(output_dir), query)
+            outputs["per_query"][query] = per_query
+            for key, known in (
+                ("binding_tools", BINDING_TOOLS),
+                ("immunogenicity_tools", IMMUNOGENICITY_TOOLS),
+            ):
+                merged = set(outputs[key]) | set(per_query[key])
+                outputs[key] = [tool for tool in known if tool in merged]
 
         result.result = _clean_result_columns(result.result)
         objects.append(result)
@@ -291,10 +306,18 @@ def handle_request(instructions: dict, bio_dir: str | Path, output_dir: str | Pa
             output_dir=output_dir,
         )
 
+        # Rows are one contiguous block per query, each ranked from 1. The
+        # index lets the results page page through a single query at a time
+        # instead of treating the concatenation as one global ranking.
         rows = []
         skipped = 0
+        query_index = []
         for obj in objects:
-            rows.extend(obj.result.to_dict(orient="records"))
+            records = obj.result.to_dict(orient="records")
+            query_index.append(
+                {"query": obj.query, "start": len(rows), "n_rows": len(records)}
+            )
+            rows.extend(records)
             skipped += int(obj.metadata.get("skipped_invalid_peptides_count", 0))
 
         return {
@@ -305,6 +328,7 @@ def handle_request(instructions: dict, bio_dir: str | Path, output_dir: str | Pa
                 "allele": allele,
                 "species": instructions.get("species", "human"),
                 "MHC_class": instructions.get("MHC_class", "I"),
+                "queries": query_index,
                 "outputs": outputs,
                 "skipped_invalid_peptides_count": skipped,
                 "invalid_subject_peptides": invalid_subject,

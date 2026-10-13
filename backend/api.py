@@ -39,6 +39,37 @@ def _clean_rows(rows):
     return [{k: _json_safe(v) for k, v in row.items()} for row in rows]
 
 
+def _urlify_outputs(job_id: str, outputs: dict) -> None:
+    """Rewrite figure filenames in place as URLs the frontend can request."""
+    if outputs.get("expression_heatmap"):
+        outputs["expression_heatmap"] = f"/api/v1/job/{job_id}/outputs/{outputs['expression_heatmap']}"
+    for item in (outputs.get("prediction_plots") or {}).values():
+        if item.get("filename"):
+            item["url"] = f"/api/v1/job/{job_id}/outputs/{item['filename']}"
+
+
+def _derive_query_index(rows: list) -> list:
+    """Rebuild the per-query row index for jobs stored before it was recorded.
+
+    Rows arrive as one contiguous block per query peptide, so a single pass over
+    the query column recovers each block's offset and size.
+    """
+    index: list[dict] = []
+    for position, row in enumerate(rows):
+        query = row.get("query")
+        if index and index[-1]["query"] == query:
+            index[-1]["n_rows"] += 1
+        else:
+            index.append({"query": query, "start": position, "n_rows": 1})
+    return index
+
+
+def _rows_for_query(rows: list, query: str | None) -> list:
+    if not query:
+        return rows
+    return [row for row in rows if row.get("query") == query]
+
+
 def _db_path():
     return current_app.config["JOB_DB"]
 
@@ -156,11 +187,13 @@ def results(job_id):
 
     metadata = result.get("metadata", {})
     outputs = metadata.get("outputs", {})
-    if outputs.get("expression_heatmap"):
-        outputs["expression_heatmap"] = f"/api/v1/job/{job_id}/outputs/{outputs['expression_heatmap']}"
-    for item in (outputs.get("prediction_plots") or {}).values():
-        if item.get("filename"):
-            item["url"] = f"/api/v1/job/{job_id}/outputs/{item['filename']}"
+    # Jobs created before per-query figures carry one flat set at the top level.
+    _urlify_outputs(job_id, outputs)
+    for per_query in (outputs.get("per_query") or {}).values():
+        _urlify_outputs(job_id, per_query)
+
+    if metadata.get("mode") == "analyze" and not metadata.get("queries"):
+        metadata["queries"] = _derive_query_index(result.get("rows", []))
 
     return jsonify({
         "status": "ok",
@@ -177,7 +210,9 @@ def chunked(job_id):
     job = get_job(_db_path(), job_id)
     if not job or not job.get("result"):
         return jsonify({"status": "error", "message": "Results are not available.", "rows": [], "lastRow": 0}), 404
-    rows = job["result"].get("rows", [])
+    # start/end are relative to the selected query, so the window cannot slide
+    # out of one query's block and into the next.
+    rows = _rows_for_query(job["result"].get("rows", []), request.args.get("query"))
     try:
         start = max(0, int(request.args.get("start", 0)))
         end = min(len(rows), int(request.args.get("end", start + 100)))
@@ -191,17 +226,31 @@ def download_csv(job_id):
     job = get_job(_db_path(), job_id)
     if not job or not job.get("result"):
         return jsonify({"status": "error", "message": "Results are not available."}), 404
-    rows = job["result"].get("rows", [])
+    query = request.args.get("query")
+    rows = _rows_for_query(job["result"].get("rows", []), query)
     if not rows:
         return jsonify({"status": "error", "message": "No rows available."}), 404
-    buffer = io.StringIO()
-    writer = csv.DictWriter(buffer, fieldnames=list(rows[0].keys()), extrasaction="ignore")
-    writer.writeheader()
-    writer.writerows(rows)
+
+    fieldnames = list(rows[0].keys())
+
+    # A multi-peptide export runs to hundreds of MB, so stream it a row at a
+    # time rather than building the whole document in memory.
+    def generate():
+        buffer = io.StringIO()
+        writer = csv.DictWriter(buffer, fieldnames=fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        yield buffer.getvalue()
+        for row in rows:
+            buffer.seek(0)
+            buffer.truncate(0)
+            writer.writerow(row)
+            yield buffer.getvalue()
+
+    filename = f"crossdome-{job_id}{f'-{query}' if query else ''}.csv"
     return Response(
-        buffer.getvalue(),
+        generate(),
         mimetype="text/csv",
-        headers={"Content-Disposition": f"attachment; filename=crossdome-{job_id}.csv"},
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
 
 
