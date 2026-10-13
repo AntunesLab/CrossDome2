@@ -1,5 +1,24 @@
 export const API_BASE_URL = import.meta.env.VITE_API_BASE ?? "http://localhost:5000";
 
+// Kept in step with MAX_ANALYZE_QUERIES in backend/crossdome/runner.py, which
+// is the authoritative check. Counting here only avoids a wasted round trip.
+export const MAX_ANALYZE_PEPTIDES = 10;
+
+const VALID_PEPTIDE = /^[ACDEFGHIKLMNPQRSTVWY]{8,25}$/;
+
+/**
+ * Count the query peptides a submission would produce, mirroring the backend's
+ * parse_peptide_text: split, normalize, drop invalid tokens, de-duplicate. A
+ * CSV header or a stray blank line therefore does not count against the limit.
+ */
+export function countQueryPeptides(text: string): number {
+  const valid = text
+    .split(/[\s,;]+/)
+    .map((token) => token.trim().toUpperCase())
+    .filter((token) => VALID_PEPTIDE.test(token));
+  return new Set(valid).size;
+}
+
 export type MhcClass = "I" | "II";
 export type Species = "human" | "humanized" | "mouse" | "bovine" | "swine" | "chicken" | "rat" | "dogsl";
 

@@ -10,7 +10,15 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { buildAnalysisFormData, fetchAlleles, submitCrossDomeJob, type MhcClass, type Species } from "@/lib/api";
+import {
+  buildAnalysisFormData,
+  countQueryPeptides,
+  fetchAlleles,
+  MAX_ANALYZE_PEPTIDES,
+  submitCrossDomeJob,
+  type MhcClass,
+  type Species,
+} from "@/lib/api";
 import { ANALYSIS_SPECIES, MHC_CLASSES } from "@/lib/mhcAlleles";
 import { Header, PageShell } from "./shared";
 
@@ -80,6 +88,24 @@ export default function SpeciesAnalysis() {
       return;
     }
 
+    // The backend enforces this too; checking first avoids uploading a large
+    // peptide list only to have the job rejected.
+    const peptideText =
+      subjectInputType === "text" ? subjectText : await subjectFile!.text();
+    const peptideCount = countQueryPeptides(peptideText);
+    if (peptideCount > MAX_ANALYZE_PEPTIDES) {
+      toast.error(
+        `Analyze mode accepts up to ${MAX_ANALYZE_PEPTIDES} query peptides per job ` +
+          `(found ${peptideCount}). Split them into smaller batches, or use the ` +
+          `command-line tool for larger runs.`
+      );
+      return;
+    }
+    if (peptideCount === 0) {
+      toast.error("No valid query peptides found. Peptides must be 8-25 standard amino acids.");
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const formData = buildAnalysisFormData({
@@ -128,6 +154,11 @@ export default function SpeciesAnalysis() {
               ) : (
                 <div className="space-y-2"><Input type="file" accept=".csv,.txt" onChange={(e) => setSubjectFile(e.target.files?.[0] ?? null)} className="glass" /><p className="text-sm text-muted-foreground flex items-center gap-2"><Upload className="w-4 h-4" />CSV or TXT with peptide sequences.</p></div>
               )}
+              <p className="text-sm text-muted-foreground">
+                Up to {MAX_ANALYZE_PEPTIDES} query peptides per job, each scored against the full
+                background set and shown separately on the results page. Use the command-line tool
+                for larger lists.
+              </p>
             </div>
 
             <div className="grid md:grid-cols-2 gap-6">

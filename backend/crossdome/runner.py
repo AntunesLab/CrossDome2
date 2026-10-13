@@ -29,6 +29,14 @@ from .visualization import (
 # command-line tool instead (see crossdome.vectorized).
 MAX_COMPARE_PAIRS = 50_000
 
+# Every query peptide is scored against the whole background set, so each one
+# adds its own full result table plus a figure set: roughly 43,000 rows and 16
+# PNGs per 9-mer against a class I allele. Ten is what a synchronous web job can
+# produce without the response outgrowing the browser or the job row outgrowing
+# SQLite. This applies to the web pipeline only; the command-line tool calls
+# run_analysis directly and stays uncapped.
+MAX_ANALYZE_QUERIES = 10
+
 
 def parse_tcr_weights(text: str | None) -> list[float] | None:
     if not text or not text.strip():
@@ -294,6 +302,13 @@ def handle_request(instructions: dict, bio_dir: str | Path, output_dir: str | Pa
         allele = str(instructions.get("target_data", "")).strip()
         if not allele:
             raise ValueError("Missing HLA/MHC allele.")
+
+        if len(valid_subject) > MAX_ANALYZE_QUERIES:
+            raise ValueError(
+                f"Analyze mode is limited to {MAX_ANALYZE_QUERIES} query peptides per job "
+                f"(got {len(valid_subject):,}). Split your peptides into smaller batches, or "
+                "use the command-line tool (crossdome2.py analyze), which has no limit."
+            )
 
         objects, outputs = run_analysis(
             allele=allele,
