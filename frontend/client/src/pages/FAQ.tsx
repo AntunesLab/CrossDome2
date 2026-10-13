@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Header, PageShell } from "./shared";
+import { speciesLabelList } from "@/lib/mhcAlleles";
 
 const workflowSteps = [
   {
@@ -44,7 +45,7 @@ const workflowSteps = [
 const localDeploymentFeatures = [
   "Same-length peptide comparison for 8–25 amino acid peptides",
   "Length-specific RDS mu, sigma, p-value thresholds, z-scores, p-values, BH-adjusted p-values, and ranks",
-  "Human, humanized, mouse, rat, pig, cattle, chicken, and dog database support",
+  `${speciesLabelList()} database support`,
   "MHC class I and II database selection",
   "Optional custom peptide database upload",
   "Optional TCR positional weights",
@@ -61,7 +62,12 @@ const frequentlyAskedQuestions = [
   {
     question: "Which analysis should I select?",
     answer:
-      "Use Human analysis to screen a peptide against human immunopeptidomics data and obtain human-specific annotations when available. Use Other species for mouse, rat, swine, bovine, chicken, canine, or humanized backgrounds. Use Compare peptides to calculate RDS directly between peptide sequences without a database background.",
+      `Use Human analysis to screen a peptide against human immunopeptidomics data and obtain human-specific annotations when available. Use Other species for ${speciesLabelList({ exclude: ["human"], conjunction: "or", lowercase: true })} backgrounds. Use Compare peptides to calculate RDS directly between peptide sequences without a database background.`,
+  },
+  {
+    question: "Which allele nomenclature does each species use?",
+    answer:
+      "Allele names follow each species' own nomenclature, so the allele list changes with the selected species: HLA for human and humanized mouse, H-2 for mouse, BoLA for cattle, SLA for pig, DLA for dog, and BF/BLB for chicken. The rat background is represented by HLA-B*27:05 peptide data from the HLA-B27-transgenic rat model rather than by rat RT1 alleles.",
   },
   {
     question: "What peptide lengths are supported?",

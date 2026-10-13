@@ -6,7 +6,7 @@ This is a clean source bundle for the current CrossDome workflow. It combines th
 
 - Same-length peptide comparison for 8–25 amino acid peptides
 - Length-specific RDS `mu`, `sigma`, p-value thresholds, z-scores, p-values, BH-adjusted p-values, and ranks
-- Human, humanized, mouse, rat, swine, bovine, chicken, and dog database naming support
+- Human, mouse, rat, cattle, chicken, dog, pig, and humanized mouse database support (file stems `human`, `mouse`, `rat`, `bovine`, `chicken`, `dogsl`, `swine`, `humanized` — the stems are the API's species values and are not renamed to match the display labels)
 - MHC class I and II database selection
 - Optional custom peptide database upload
 - Optional TCR positional weights

@@ -14,7 +14,9 @@ The source bundle intentionally does **not** duplicate the production CrossDome 
    - `swine_classI.parquet` / `swine_classII.parquet`
    - `bovine_classI.parquet` / `bovine_classII.parquet`
    - `chicken_classI.parquet` / `chicken_classII.parquet`
-   - `dog_classI.parquet` / `dog_classII.parquet`
+   - `dogsl_classI.parquet` / `dogsl_classII.parquet`
+
+   The filename stem is the species value the API sends, which is not always the name shown in the UI: `bovine` is labelled "Cattle", `swine` is labelled "Pig", `dogsl` is labelled "Dog", and `humanized` is labelled "Humanized mouse".
 
    Only combinations that exist in your production database need to be present. Each file must contain at least `peptide_sequence` and `hla_allele`. `peptide_length` and `resource` are recommended.
 

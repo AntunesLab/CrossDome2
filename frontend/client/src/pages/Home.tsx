@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ArrowRight, Database, FlaskConical, GitCompareArrows, Search } from "lucide-react";
 import { Header, PageShell } from "./shared";
+import { speciesLabelList } from "@/lib/mhcAlleles";
 
 
 
@@ -51,7 +52,7 @@ export default function Home() {
             <h3 className="text-3xl font-semibold text-white">Other species</h3>
             <p className="text-slate-300 mt-2">
               Search non-human immunopeptidomics databases for potential cross-reactive targets,
-              including murine, bovine, porcine, chicken, rat, canine, and humanized cells.
+              including {speciesLabelList({ exclude: ["human"], lowercase: true })} backgrounds.
             </p>
             <Button className="w-full bg-[#219653] hover:bg-[#197a43] text-white" onClick={() => setLocation("/species")}>
               Start species analysis <ArrowRight className="w-4 h-4 ml-2" />
