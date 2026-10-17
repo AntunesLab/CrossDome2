@@ -44,8 +44,8 @@ export default function SpeciesAnalysis() {
     [species],
   );
 
-  // Some species only have peptide data for one MHC class (e.g. Humanized is
-  // Class II only). When switching species, fall back to a class that
+  // Some systems only have peptide data for one MHC class (e.g. Humanized mouse
+  // is Class II only). When switching system, fall back to a class that
   // actually has alleles instead of leaving the user on an empty dropdown.
   useEffect(() => {
     if (!availableClasses.includes(mhcClass)) {
@@ -120,7 +120,7 @@ export default function SpeciesAnalysis() {
       if (customDatabase) formData.append("customDatabase", customDatabase);
       if (tcrWeights.trim()) formData.append("tcrWeights", tcrWeights.trim());
       const jobId = await submitCrossDomeJob(formData);
-      toast.success("Species analysis submitted successfully.");
+      toast.success("Systems analysis submitted successfully.");
       setLocation(`/results/${jobId}`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Error submitting analysis.");
@@ -135,10 +135,10 @@ export default function SpeciesAnalysis() {
       <main className="container pb-24">
         <Card className="glass border-white/10 p-8 max-w-4xl mx-auto">
           <div className="space-y-2 mb-8">
-            <Badge variant="outline" className="border-primary/30 text-primary">Species-specific workflow</Badge>
-            <h2 className="text-3xl font-bold">Other species analysis</h2>
+            <Badge variant="outline" className="border-primary/30 text-primary">System-specific workflow</Badge>
+            <h2 className="text-3xl font-bold">Other systems analysis</h2>
             <p className="text-muted-foreground">
-              Select the species, MHC class, and allele. Expression outputs and dynamic prediction visualizations are hidden for this workflow because expression data are only available for human. The results page will show a static top-30 table with full CSV download.
+              Select the system, MHC class, and allele. Expression outputs and dynamic prediction visualizations are hidden for this workflow because expression data are only available for human. The results page will show a static top-30 table with full CSV download.
             </p>
           </div>
 
@@ -163,7 +163,7 @@ export default function SpeciesAnalysis() {
 
             <div className="grid md:grid-cols-2 gap-6">
               <div className="space-y-2">
-                <Label>Species</Label>
+                <Label>System</Label>
                 <Select value={species} onValueChange={(v) => setSpecies(v as Species)}>
                   <SelectTrigger className="glass"><SelectValue /></SelectTrigger>
                   <SelectContent>{NON_HUMAN_SPECIES.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent>
@@ -213,7 +213,7 @@ export default function SpeciesAnalysis() {
 
             <Button type="submit" className="w-full" size="lg" disabled={isSubmitting}>
               {isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              Start species analysis
+              Start systems analysis
             </Button>
           </form>
         </Card>

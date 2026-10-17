@@ -49,13 +49,13 @@ export default function Home() {
             <div className="w-12 h-12 rounded-xl bg-[#219653]/20 flex items-center justify-center border border-[#219653]/40">
               <FlaskConical className="w-6 h-6 text-[#35c275]" />
             </div>
-            <h3 className="text-3xl font-semibold text-white">Other species</h3>
+            <h3 className="text-3xl font-semibold text-white">Other systems</h3>
             <p className="text-slate-300 mt-2">
               Search non-human immunopeptidomics databases for potential cross-reactive targets,
               including {speciesLabelList({ exclude: ["human"], lowercase: true })} backgrounds.
             </p>
             <Button className="w-full bg-[#219653] hover:bg-[#197a43] text-white" onClick={() => setLocation("/species")}>
-              Start species analysis <ArrowRight className="w-4 h-4 ml-2" />
+              Start systems analysis <ArrowRight className="w-4 h-4 ml-2" />
             </Button>
           </Card>
 
@@ -80,7 +80,7 @@ export default function Home() {
               <Database className="w-5 h-5 text-[#58a9ee]" />
               <p className="text-slate-300 text-sm">
                 Use one of three modes above depending on your goal: human off-target
-                screening, species-specific peptide search, or direct peptide-to-peptide RDS comparison.
+                screening, other-systems peptide search, or direct peptide-to-peptide RDS comparison.
               </p>
             </div>
           </Card>

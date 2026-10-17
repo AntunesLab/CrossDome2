@@ -375,9 +375,9 @@ export default function Results() {
               <Card className="glass border-white/10 p-4 flex gap-3 items-start">
                 <Info className="w-5 h-5 text-primary mt-0.5" />
                 <div>
-                  <h2 className="text-lg font-semibold">Species analysis table</h2>
+                  <h2 className="text-lg font-semibold">Systems analysis table</h2>
                   <p className="text-muted-foreground">
-                    Human expression and prediction plots are not generated for other-species analyses.
+                    Human expression and prediction plots are not generated for other-systems analyses.
                   </p>
                 </div>
               </Card>

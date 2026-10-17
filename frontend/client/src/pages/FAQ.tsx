@@ -23,7 +23,7 @@ const workflowSteps = [
   {
     title: "Choose the analysis settings",
     description:
-      "For database searches, select the species, MHC class, and available HLA/MHC allele. Direct peptide comparison does not require a species or allele.",
+      "For database searches, select the system, MHC class, and available HLA/MHC allele. Direct peptide comparison does not require a system or allele.",
   },
   {
     title: "Compare peptides of the same length",
@@ -62,12 +62,12 @@ const frequentlyAskedQuestions = [
   {
     question: "Which analysis should I select?",
     answer:
-      `Use Human analysis to screen a peptide against human immunopeptidomics data and obtain human-specific annotations when available. Use Other species for ${speciesLabelList({ exclude: ["human"], conjunction: "or", lowercase: true })} backgrounds. Use Compare peptides to calculate RDS directly between peptide sequences without a database background.`,
+      `Use Human analysis to screen a peptide against human immunopeptidomics data and obtain human-specific annotations when available. Use Other systems for ${speciesLabelList({ exclude: ["human"], conjunction: "or", lowercase: true })} backgrounds. Use Compare peptides to calculate RDS directly between peptide sequences without a database background.`,
   },
   {
-    question: "Which allele nomenclature does each species use?",
+    question: "Which allele nomenclature does each system use?",
     answer:
-      "Allele names follow each species' own nomenclature, so the allele list changes with the selected species: HLA for human and humanized mouse, H-2 for mouse, BoLA for cattle, SLA for pig, DLA for dog, and BF/BLB for chicken. The rat background is represented by HLA-B*27:05 peptide data from the HLA-B27-transgenic rat model rather than by rat RT1 alleles.",
+      "Allele names follow each system's own nomenclature, so the allele list changes with the selected system: HLA for human, H-2 for mouse, BoLA for cattle, SLA for pig, DLA for dog, and BF/BLB for chicken. The two humanized systems carry human HLA alleles rather than their own: the humanized mouse background is HLA-DR peptide data from HLA-DR-transgenic mice, and the humanized rat background is HLA-B*27:05 peptide data from the HLA-B27-transgenic rat model rather than rat RT1 alleles.",
   },
   {
     question: "What peptide lengths are supported?",

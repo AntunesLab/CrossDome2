@@ -14,15 +14,21 @@ import type { MhcClass, Species } from "./api";
 // `bovine_classI.parquet`). Keeping this in sync with `backend/bio-database/`
 // avoids landing the user on a species+class combination with no alleles to
 // select.
+//
+// The user-visible wording for this set is "systems", not "species": six entries
+// are native-MHC species, while `humanized` (HLA-DR-transgenic mouse) and `rat`
+// (HLA-B*27:05-transgenic rat — the database holds no native RT1 ligands) are
+// human-HLA transgenic models. Both are labelled "Humanized ..." and listed last
+// for that reason; keep prose on "system" rather than reverting to "species".
 export const ANALYSIS_SPECIES: Array<{ value: Species; label: string; hasExpression: boolean; classes: MhcClass[] }> = [
   { value: "human", label: "Human", hasExpression: true, classes: ["I", "II"] },
   { value: "mouse", label: "Mouse", hasExpression: false, classes: ["I", "II"] },
-  { value: "rat", label: "Rat", hasExpression: false, classes: ["I"] },
   { value: "bovine", label: "Cattle", hasExpression: false, classes: ["II"] },
   { value: "chicken", label: "Chicken", hasExpression: false, classes: ["I", "II"] },
   { value: "dogsl", label: "Dog", hasExpression: false, classes: ["I"] },
   { value: "swine", label: "Pig", hasExpression: false, classes: ["I"] },
   { value: "humanized", label: "Humanized mouse", hasExpression: false, classes: ["II"] },
+  { value: "rat", label: "Humanized rat", hasExpression: false, classes: ["I"] },
 ];
 
 export const MHC_CLASSES: Array<{ value: MhcClass; label: string }> = [
@@ -36,8 +42,8 @@ export function speciesLabel(value: Species | string): string {
 }
 
 /**
- * Species labels as a prose list, so user-facing copy never hardcodes the set.
- * `lowercase` suits mid-sentence use ("... for mouse, rat, cattle, ... backgrounds");
+ * System labels as a prose list, so user-facing copy never hardcodes the set.
+ * `lowercase` suits mid-sentence use ("... for mouse, cattle, ... backgrounds");
  * the default keeps the dropdown's own capitalization for list items and headings.
  */
 export function speciesLabelList(
