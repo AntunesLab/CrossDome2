@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import re
 from functools import lru_cache
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Mapping, Sequence
 
 import pandas as pd
 
@@ -46,6 +47,12 @@ NON_TISSUE_COLUMNS = frozenset(
 # in n_source_genes. Only 0.03% of peptides map to more genes than this.
 MAX_REPORTED_GENES = 25
 
+TRUNCATION_MARKER = re.compile(r"^\+(\d+) more$")
+
+# The 20 standard residues, used to extend an 8-mer back into the 9-mer windows
+# that contain it. Kept here rather than imported from core to avoid a cycle.
+FLANK_RESIDUES = "ACDEFGHIKLMNPQRSTVWY"
+
 ANNOTATION_COLUMNS = ["peptide_sequence", "ensembl_id", "gene_donor", "n_source_genes"]
 
 
@@ -81,12 +88,32 @@ def load_gene_expression_breadth(bio_database_dir: str) -> pd.DataFrame:
     return breadth.drop_duplicates(subset=["ensembl_id"], keep="first")
 
 
-def _join_gene_names(genes: Iterable[str]) -> str:
+def _join_gene_names(genes: Iterable[str], hidden: int = 0) -> str:
+    """Format a gene list for display, truncating past MAX_REPORTED_GENES.
+
+    hidden carries names already dropped by an earlier truncation, so that
+    merging two truncated lists reports one combined marker rather than two.
+    """
     names = list(genes)
-    if len(names) <= MAX_REPORTED_GENES:
-        return ", ".join(names)
+    overflow = max(0, len(names) - MAX_REPORTED_GENES) + hidden
     kept = ", ".join(names[:MAX_REPORTED_GENES])
-    return f"{kept}, +{len(names) - MAX_REPORTED_GENES} more"
+    if not overflow:
+        return kept
+    return f"{kept}, +{overflow} more" if kept else f"+{overflow} more"
+
+
+def _split_gene_names(gene_donor: object) -> tuple[list[str], int]:
+    """Inverse of _join_gene_names: the listed names, plus the hidden count."""
+    if not isinstance(gene_donor, str) or not gene_donor:
+        return [], 0
+    names = [part for part in (chunk.strip() for chunk in gene_donor.split(",")) if part]
+    hidden = 0
+    if names:
+        match = TRUNCATION_MARKER.match(names[-1])
+        if match:
+            hidden = int(match.group(1))
+            names = names[:-1]
+    return names, hidden
 
 
 def aggregate_peptide_annotation(
@@ -181,3 +208,87 @@ def load_annotation_nine_mer_index(
             zip(nine["ensembl_id"], nine["gene_donor"], nine["n_source_genes"]),
         )
     )
+
+
+@lru_cache(maxsize=4)
+def load_gene_breadth_rank(bio_database_dir: str) -> dict[str, tuple[int, float]]:
+    """ensembl_id -> (n tissues detected, mean expression), for tie-breaking.
+
+    The dict form of load_gene_expression_breadth, for the lookups that happen
+    one peptide at a time rather than through a merge. ~20K genes, so this is
+    small enough to hold alongside the 9-mer index.
+    """
+    breadth = load_gene_expression_breadth(bio_database_dir)
+    if breadth.empty:
+        return {}
+    return {
+        str(gene): (int(n_tissues), float(mean_expr))
+        for gene, n_tissues, mean_expr in zip(
+            breadth["ensembl_id"], breadth["_n_tissues"], breadth["_mean_expr"]
+        )
+    }
+
+
+def expand_eight_mer(
+    peptide: str, nine_mer_index: Mapping[str, tuple[str, object, int]]
+) -> list[tuple[str, object, int]]:
+    """Digest entries for every 9-mer window that contains this 8-mer.
+
+    An 8-mer is shorter than the digest key, so neither an exact match nor the
+    9-mer core scan can ever annotate it -- yet 8-mers are 56% of the human
+    Class I annotation gap. Every 8-mer window of a protein is the prefix or
+    the suffix of some 9-mer window of that same protein, so re-extending the
+    peptide by one residue on either side and testing all 40 candidates against
+    the 9-mer index recovers exactly what a materialized 8-mer digest would,
+    without shipping or loading one. 40 dict lookups is ~2.3us per peptide.
+    """
+    hits: list[tuple[str, object, int]] = []
+    for residue in FLANK_RESIDUES:
+        for candidate in (residue + peptide, peptide + residue):
+            hit = nine_mer_index.get(candidate)
+            if hit is not None and hit not in hits:
+                hits.append(hit)
+    return hits
+
+
+def merge_annotation_entries(
+    entries: Sequence[tuple[str, object, int]],
+    breadth_rank: Mapping[str, tuple[int, float]],
+) -> tuple[str, object, int]:
+    """Union several digest entries for one peptide into a single entry.
+
+    An 8-mer typically sits in two different 9-mer windows (one per flank) and
+    sometimes many more, and 13.2% of the 8-mers recovered this way reach more
+    than one gene that way. Taking the first hit would hide the others, which
+    is precisely the alternative-locus risk gene_donor exists to surface, so
+    every gene is carried over. The representative ensembl_id that the
+    expression figure joins on is re-picked by the same breadth rule
+    aggregate_peptide_annotation applies: most tissues, then highest mean
+    expression, then ensembl_id for determinism.
+    """
+    if len(entries) == 1:
+        return entries[0]
+
+    names: list[str] = []
+    seen: set[str] = set()
+    hidden = 0
+    for _, gene_donor, _ in entries:
+        listed, extra = _split_gene_names(gene_donor)
+        hidden += extra
+        for name in listed:
+            if name not in seen:
+                seen.add(name)
+                names.append(name)
+
+    def _breadth_key(ensembl_id: object) -> tuple[int, float, str]:
+        n_tissues, mean_expr = breadth_rank.get(str(ensembl_id), (-1, -1.0))
+        # Genes missing from HPA sort last: they cannot anchor the figure.
+        return (-n_tissues, -mean_expr, str(ensembl_id))
+
+    ensembl_id = min((entry[0] for entry in entries), key=_breadth_key)
+    # hidden is an upper bound on the genes past the display cap, since the
+    # truncated tails of two entries can overlap. It is reported anyway:
+    # overstating how many loci a low-complexity peptide maps to is safer than
+    # dropping the marker. Only reachable for the 0.03% of entries past the cap.
+    joined = _join_gene_names(names, hidden) if (names or hidden) else None
+    return ensembl_id, joined, len(names) + hidden

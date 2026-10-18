@@ -11,9 +11,12 @@ from statsmodels.stats.multitest import multipletests
 from .data_loader import (
     NON_TISSUE_COLUMNS,
     aggregate_peptide_annotation,
+    expand_eight_mer,
     load_annotation_nine_mer_index,
+    load_gene_breadth_rank,
     load_gene_expression_breadth,
     load_scoring_data,
+    merge_annotation_entries,
 )
 from .models import XRBackground, XRResult
 from .stats import get_length_parameters
@@ -239,38 +242,66 @@ def _add_expression(df: pd.DataFrame, bio_dir: Path):
     merged["annotation_source"] = np.where(merged["peptide_sequence"].notna(), "exact", None)
 
     # peptide_annotation.parquet is overwhelmingly a 9-mer sliding-window
-    # digest of the proteome, so longer peptides (e.g. Class II 11-25mers)
-    # routinely miss the exact-match above even when their source gene is
-    # fully annotated. Recover these by checking whether any 9-mer core
-    # window of the peptide hits the 9-mer digest -- this recovers ~95% of
-    # otherwise-missing annotations (sampled check) without materializing a
-    # full per-length digest.
-    unmatched = merged["peptide_sequence"].isna() & (merged["subject"].str.len() >= 9)
+    # digest of the proteome, so peptides of any other length routinely miss
+    # the exact-match above even when their source gene is fully annotated.
+    # Two fallbacks recover them from that same 9-mer digest, with no
+    # per-length digest to materialize:
+    #   - 9 residues or more (e.g. Class II 11-25mers): does any 9-mer core
+    #     window of the peptide hit the digest? Recovers ~95% of the
+    #     otherwise-missing annotations.
+    #   - exactly 8 residues: too short for either step above, and 56% of the
+    #     human Class I gap. Re-extend by one residue on each side and test
+    #     the 40 candidate 9-mers (see expand_eight_mer). Recovers 97.9% of
+    #     unannotated 8-mers, taking human Class I from 14.5% to 6.6%
+    #     unannotated and human Class II from 4.9% to 4.0% (measured
+    #     2026-10-18 over the whole database).
+    # Both are inferences from a sub-window rather than an exact hit, which is
+    # what annotation_source records.
+    unmatched = merged["peptide_sequence"].isna() & (merged["subject"].str.len() >= 8)
     if unmatched.any():
         nine_mer_index = load_annotation_nine_mer_index(str(bio_dir.resolve()))
+        breadth_rank = load_gene_breadth_rank(str(bio_dir.resolve()))
         has_gene_donor_col = "gene_donor" in merged.columns
         has_gene_count_col = "n_source_genes" in merged.columns
         if nine_mer_index:
-            # Row-by-row with early exit on the first hit: a fully vectorized
-            # version (score every offset for every peptide, then pick the
-            # first hit) was measured ~2x slower in practice, since most
-            # peptides hit on an early offset and most dict lookups here are
-            # wasted work once a vectorized pass commits to checking all of
-            # them.
-            for idx in merged.index[unmatched]:
-                seq = merged.at[idx, "subject"]
-                hit = None
-                for i in range(len(seq) - 8):
-                    hit = nine_mer_index.get(seq[i : i + 9])
-                    if hit is not None:
-                        break
+            # The 9-mer core scan goes offset by offset with an early exit on
+            # the first hit: a fully vectorized version (score every offset for
+            # every peptide, then pick the first hit) was measured ~2x slower
+            # in practice, since most peptides hit on an early offset and most
+            # dict lookups there are wasted work once a vectorized pass
+            # commits to checking all of them.
+            rows: list = []
+            hits: list[tuple] = []
+            sources: list[str] = []
+            for idx, seq in merged.loc[unmatched, "subject"].items():
+                if len(seq) == 8:
+                    entries = expand_eight_mer(seq, nine_mer_index)
+                    hit = (
+                        merge_annotation_entries(entries, breadth_rank)
+                        if entries
+                        else None
+                    )
+                else:
+                    hit = None
+                    for i in range(len(seq) - 8):
+                        hit = nine_mer_index.get(seq[i : i + 9])
+                        if hit is not None:
+                            break
                 if hit is not None:
-                    merged.at[idx, "ensembl_id"] = hit[0]
-                    if has_gene_donor_col:
-                        merged.at[idx, "gene_donor"] = hit[1]
-                    if has_gene_count_col:
-                        merged.at[idx, "n_source_genes"] = hit[2]
-                    merged.at[idx, "annotation_source"] = "9mer_core"
+                    rows.append(idx)
+                    hits.append(hit)
+                    sources.append("8mer_flank" if len(seq) == 8 else "9mer_core")
+
+            # Assigned column-at-a-time rather than cell-by-cell: .at on an
+            # object column costs ~15us per write, which on a full-background
+            # job dominates the lookups it is storing.
+            if rows:
+                merged.loc[rows, "ensembl_id"] = [hit[0] for hit in hits]
+                if has_gene_donor_col:
+                    merged.loc[rows, "gene_donor"] = [hit[1] for hit in hits]
+                if has_gene_count_col:
+                    merged.loc[rows, "n_source_genes"] = [hit[2] for hit in hits]
+                merged.loc[rows, "annotation_source"] = sources
 
     # hpa also carries its own gene_donor column; dropping it here avoids a
     # merge-suffix collision (gene_donor_x/gene_donor_y) that would otherwise
