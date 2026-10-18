@@ -47,6 +47,7 @@ interface ResultRow {
   peptide_length: number | null;
   resource: string | null;
   gene_donor?: string | null;
+  n_source_genes?: number | null;
   [key: string]: unknown;
 }
 
@@ -500,7 +501,14 @@ export default function Results() {
                         <td className="px-4 py-3 text-sm font-mono text-primary">{row.query}</td>
                         <td className="px-4 py-3 text-sm font-mono text-accent">{row.subject}</td>
                         {isHumanAnalysis && (
-                          <td className="px-4 py-3 text-sm">{row.gene_donor || "N/A"}</td>
+                          <td className="px-4 py-3 text-sm">
+                            {/* A peptide can be presented from several genes; the full
+                                list is in the CSV and on hover, so the cell cannot
+                                stretch the table for histone or MAGE-style families. */}
+                            <div className="max-w-[14rem] truncate" title={row.gene_donor || undefined}>
+                              {row.gene_donor || "N/A"}
+                            </div>
+                          </td>
                         )}
                         <td className="px-4 py-3 text-sm text-right font-mono">{fmtNumber(row.relatedness_score, 3)}</td>
                         <td className="px-4 py-3 text-sm text-right font-mono">{fmtNumber(row.rds_mu, 3)}</td>

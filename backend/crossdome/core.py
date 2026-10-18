@@ -8,7 +8,13 @@ import pandas as pd
 from scipy.stats import norm
 from statsmodels.stats.multitest import multipletests
 
-from .data_loader import load_annotation_nine_mer_index, load_scoring_data
+from .data_loader import (
+    NON_TISSUE_COLUMNS,
+    aggregate_peptide_annotation,
+    load_annotation_nine_mer_index,
+    load_gene_expression_breadth,
+    load_scoring_data,
+)
 from .models import XRBackground, XRResult
 from .stats import get_length_parameters
 from .visualization import BINDING_TOOLS, IMMUNOGENICITY_TOOLS
@@ -212,10 +218,16 @@ def _add_expression(df: pd.DataFrame, bio_dir: Path):
         return df, pd.DataFrame()
 
     # peptide_annotation.parquet has one row per originating gene/paralog for a
-    # given peptide (e.g. one peptide can map to multiple MAGE-A paralogs), so
-    # merging without deduping fans a single scored row into several
-    # duplicate-looking rows that share the same rank/score.
-    annot = annot.drop_duplicates(subset=["peptide_sequence"], keep="first")
+    # given peptide (e.g. EVDPAGHSY maps to MAGEA8, MAGEA9B and MAGEA9), so
+    # merging without collapsing fans a single scored row into several
+    # duplicate-looking rows that share the same rank/score. Collapse it to one
+    # row per peptide instead, keeping every source gene in gene_donor and the
+    # most broadly expressed one in ensembl_id for the expression figure. Only
+    # the peptides actually scored here need collapsing, which keeps it cheap.
+    annot = annot.loc[annot["peptide_sequence"].isin(set(df["subject"]))]
+    annot = aggregate_peptide_annotation(
+        annot, load_gene_expression_breadth(str(bio_dir.resolve()))
+    )
     hpa = hpa.drop_duplicates(subset=["ensembl_id"], keep="first")
 
     merged = df.merge(
@@ -237,6 +249,7 @@ def _add_expression(df: pd.DataFrame, bio_dir: Path):
     if unmatched.any():
         nine_mer_index = load_annotation_nine_mer_index(str(bio_dir.resolve()))
         has_gene_donor_col = "gene_donor" in merged.columns
+        has_gene_count_col = "n_source_genes" in merged.columns
         if nine_mer_index:
             # Row-by-row with early exit on the first hit: a fully vectorized
             # version (score every offset for every peptide, then pick the
@@ -255,6 +268,8 @@ def _add_expression(df: pd.DataFrame, bio_dir: Path):
                     merged.at[idx, "ensembl_id"] = hit[0]
                     if has_gene_donor_col:
                         merged.at[idx, "gene_donor"] = hit[1]
+                    if has_gene_count_col:
+                        merged.at[idx, "n_source_genes"] = hit[2]
                     merged.at[idx, "annotation_source"] = "9mer_core"
 
     # hpa also carries its own gene_donor column; dropping it here avoids a
@@ -262,14 +277,7 @@ def _add_expression(df: pd.DataFrame, bio_dir: Path):
     # silently erase the gene_donor column annot already provided.
     merged = merged.merge(hpa.drop(columns=["gene_donor"]), on="ensembl_id", how="left")
 
-    non_tissue = {
-        "ensembl_id",
-        "gene_donor",
-        "Group",
-        "spec_degree",
-        "tissues",
-    }
-    tissue_cols = [c for c in hpa.columns if c not in non_tissue]
+    tissue_cols = [c for c in hpa.columns if c not in NON_TISSUE_COLUMNS]
 
     expression = pd.DataFrame()
     if tissue_cols:
