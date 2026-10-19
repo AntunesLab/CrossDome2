@@ -29,3 +29,19 @@ coverage/
 
 # Local planning/scratch notes, not for the public repo
 TODO.md
+
+# Runtime state / job artifacts
+backend/outputs/
+backend/crossdome_jobs.sqlite3
+*.sqlite3
+
+# Private maintainer tooling, deliberately NOT in the public repo.
+# graphify builds a local knowledge graph of this codebase; graph.json is
+# derived data rewritten whole on every build, and .gitattributes only works
+# in a clone that has the merge driver configured. .claude/ pins an absolute
+# path to one machine. Collaborators clone the tool and the data, not this.
+graphify-out/
+.graphifyignore
+.gitattributes
+.claude/
+CLAUDE.md
