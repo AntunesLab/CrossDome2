@@ -17,10 +17,12 @@ const EXPORT_ROWS_PER_QUERY = 1000;
 const DEFAULT_BINDING_TOOLS = [
   "NetMHCpan-EL",
   "BigMHC-EL",
-  "MHCflurryEL",
-  "MixMHCpred",
-  "NetMHCpan",
-  "NetMHC",
+  "MixMHCpred-EL",
+  "MHCflurry-EL",
+  "MHCflurry-PS",
+  "MHCflurry-BA",
+  "NetMHCpan-BA",
+  "NetMHC-BA",
 ];
 
 const DEFAULT_IMMUNOGENICITY_TOOLS = [

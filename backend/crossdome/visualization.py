@@ -9,10 +9,12 @@ from matplotlib.gridspec import GridSpec
 BINDING_TOOLS = [
     "NetMHCpan-EL",
     "BigMHC-EL",
-    "MHCflurryEL",
-    "MixMHCpred",
-    "NetMHCpan",
-    "NetMHC",
+    "MixMHCpred-EL",
+    "MHCflurry-EL",
+    "MHCflurry-PS",
+    "MHCflurry-BA",
+    "NetMHCpan-BA",
+    "NetMHC-BA",
 ]
 
 IMMUNOGENICITY_TOOLS = [
@@ -22,17 +24,26 @@ IMMUNOGENICITY_TOOLS = [
     "TLImm",
 ]
 
-# Unit/scale of each tool's score, used to annotate plot axes. NetMHC and
-# NetMHCpan report binding affinity in nM (lower is stronger); the eluted
-# ligand (EL) and immunogenicity tools report bounded scores; MixMHCpred
-# reports a log-likelihood score that can be negative.
+# Unit/scale of each tool's score, used to annotate plot axes. Tool names carry
+# an explicit category suffix (-BA affinity, -EL eluted ligand, -PS presentation)
+# so the dropdown says what each one predicts. NetMHC-BA,
+# NetMHCpan-BA and MHCflurry-BA report binding affinity in nM (lower is stronger);
+# the eluted ligand (EL) and immunogenicity tools report bounded scores;
+# MixMHCpred reports a log-likelihood score that can be negative.
+#
+# MHCflurry 2.0 has no standalone eluted-ligand model the way NetMHCpan does.
+# It ships three quantities instead, all kept here: BA is the affinity model,
+# EL is the MS-trained antigen-processing score, and PS is the presentation
+# score combining the two. PS is the closest analogue to another tool's EL.
 TOOL_UNITS = {
     "NetMHCpan-EL": "EL score, 0-1",
     "BigMHC-EL": "EL score, 0-1",
-    "MHCflurryEL": "EL score, 0-1",
-    "MixMHCpred": "log score",
-    "NetMHCpan": "nM, lower = stronger",
-    "NetMHC": "nM, lower = stronger",
+    "MHCflurry-EL": "processing score, 0-1",
+    "MHCflurry-BA": "nM, lower = stronger",
+    "MHCflurry-PS": "presentation score, 0-1",
+    "MixMHCpred-EL": "log score",
+    "NetMHCpan-BA": "nM, lower = stronger",
+    "NetMHC-BA": "nM, lower = stronger",
     "DeepImmuno": "score, 0-1",
     "PRIME": "score, 0-1",
     "BigMHC-IM": "score, 0-1",
@@ -48,7 +59,7 @@ def tool_axis_label(tool: str) -> str:
 
 # Affinities (nM) span four orders of magnitude, so they are drawn on a log y
 # axis. Every other tool reports a bounded score and stays linear.
-LOG_SCALE_TOOLS = {"NetMHC", "NetMHCpan"}
+LOG_SCALE_TOOLS = {"NetMHC-BA", "NetMHCpan-BA", "MHCflurry-BA"}
 
 
 def _panel_series(data: pd.DataFrame, tool: str) -> tuple[pd.Series, str, bool]:

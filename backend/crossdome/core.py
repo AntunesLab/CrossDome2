@@ -33,7 +33,6 @@ PREDICTION_PERCENTILE_COLUMNS = [
     "NetMHCpan_percentile",
     "NetMHCpanEL_percentile",
     "MixMHCpred_percentile",
-    "MHCflurryEL_percentile",
     "PRIME_percentile",
     "DeepImmuno_percentile",
     "best_percentile",
@@ -126,11 +125,13 @@ def _find_column(df: pd.DataFrame, aliases: Iterable[str]) -> str | None:
 def _prediction_aliases() -> dict[str, list[str]]:
     return {
         "BigMHC-EL": ["BigMHC-EL", "BigMHC_EL", "bigmhc_el"],
-        "NetMHC": ["NetMHC", "netmhc"],
-        "NetMHCpan": ["NetMHCpan", "netmhcpan"],
+        "NetMHC-BA": ["NetMHC-BA", "NetMHC", "netmhc"],
+        "NetMHCpan-BA": ["NetMHCpan-BA", "NetMHCpan", "netmhcpan"],
         "NetMHCpan-EL": ["NetMHCpan-EL", "NetMHCpan_EL", "netmhcpan_el"],
-        "MixMHCpred": ["MixMHCpred", "mixmhcpred"],
-        "MHCflurryEL": ["MHCflurryEL", "mhcflurryel", "mhcflurry_el"],
+        "MixMHCpred-EL": ["MixMHCpred-EL", "MixMHCpred", "mixmhcpred"],
+        "MHCflurry-EL": ["MHCflurry-EL", "mhcflurry_processing_score"],
+        "MHCflurry-BA": ["MHCflurry-BA", "mhcflurry_affinity"],
+        "MHCflurry-PS": ["MHCflurry-PS", "mhcflurry_presentation_score"],
         "BigMHC-IM": ["BigMHC-IM", "BigMHC_IM", "bigmhc_im"],
         "PRIME": ["PRIME", "prime"],
         "DeepImmuno": ["DeepImmuno", "deepimmuno", "deep_immuno"],
@@ -141,7 +142,6 @@ def _prediction_aliases() -> dict[str, list[str]]:
         "NetMHCpan_percentile": ["NetMHCpan_percentile"],
         "NetMHCpanEL_percentile": ["NetMHCpanEL_percentile", "NetMHCpan_EL_percentile"],
         "MixMHCpred_percentile": ["MixMHCpred_percentile"],
-        "MHCflurryEL_percentile": ["MHCflurryEL_percentile"],
         "PRIME_percentile": ["PRIME_percentile"],
         "DeepImmuno_percentile": ["DeepImmuno_percentile"],
         "best_percentile": ["best_percentile"],
@@ -155,7 +155,8 @@ def _merge_predictions(df: pd.DataFrame, bio_dir: Path, allele: str) -> pd.DataF
 
     The user's current table contains:
       BigMHC-EL, BigMHC-IM, NetMHC, NetMHCpan, NetMHCpan-EL,
-      MixMHCpred, MHCflurryEL, PRIME, DeepImmuno, TLImm,
+      MixMHCpred-EL, MHCflurry-BA, MHCflurry-EL, MHCflurry-PS,
+      PRIME, DeepImmuno, TLImm,
       plus prediction percentile columns.
     """
     path = bio_dir / "predictions.parquet"
