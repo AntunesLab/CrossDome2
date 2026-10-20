@@ -12,11 +12,10 @@ RUN pip install --no-cache-dir pyarrow==21.0.0
 RUN pip install --no-cache-dir matplotlib==3.11.2
 RUN pip install --no-cache-dir statsmodels==0.15.0
 RUN pip install --no-cache-dir -r requirements.txt
-# The bio-database parquets are 647 MB of the build context. They go in their
-# own layers, largest first, so no single push blob exceeds ~85 MB -- the same
+# The bio-database parquets are the bulk of the build context. They go in their
+# own layers, largest first, so no single push blob exceeds ~80 MB -- the same
 # registry constraint that splits the pip steps above. The files below are
 # already in place when COPY . . runs, so that step only adds code.
-COPY bio-database/hla_database.csv bio-database/
 COPY bio-database/peptide_annotation.parquet bio-database/
 COPY bio-database/predictions.parquet bio-database/
 COPY bio-database/predictions_classI_02.parquet bio-database/
