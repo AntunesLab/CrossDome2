@@ -9,3 +9,9 @@ outputs
 # and the dev copy carries every cached result blob -- 1.2 GB at last check.
 *.sqlite3
 *.sqlite3-journal
+# Per-allele prediction shards (861 files, 225 MB): intermediate output of
+# tools/run_predictions.py, already merged into the published
+# predictions*.parquet parts. Gitignored too -- never belongs in an image.
+bio-database/predictions/
+# Maintainer-only scripts; not imported by the app.
+tools/
