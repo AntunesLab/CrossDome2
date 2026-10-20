@@ -32,6 +32,8 @@ PREDICTION_PERCENTILE_COLUMNS = [
     "NetMHC_percentile",
     "NetMHCpan_percentile",
     "NetMHCpanEL_percentile",
+    "NetMHCIIpan_percentile",
+    "NetMHCIIpanEL_percentile",
     "MixMHCpred_percentile",
     "PRIME_percentile",
     "DeepImmuno_percentile",
@@ -129,6 +131,8 @@ def _prediction_aliases() -> dict[str, list[str]]:
         "NetMHCpan-BA": ["NetMHCpan-BA", "NetMHCpan", "netmhcpan"],
         "NetMHCpan-EL": ["NetMHCpan-EL", "NetMHCpan_EL", "netmhcpan_el"],
         "MixMHCpred-EL": ["MixMHCpred-EL", "MixMHCpred", "mixmhcpred"],
+        "NetMHCIIpan-EL": ["NetMHCIIpan-EL", "NetMHCIIpan_EL", "netmhciipan_el"],
+        "NetMHCIIpan-BA": ["NetMHCIIpan-BA", "NetMHCIIpan", "netmhciipan_ba"],
         "MHCflurry-EL": ["MHCflurry-EL", "mhcflurry_processing_score"],
         "MHCflurry-BA": ["MHCflurry-BA", "mhcflurry_affinity"],
         "MHCflurry-PS": ["MHCflurry-PS", "mhcflurry_presentation_score"],
@@ -141,6 +145,8 @@ def _prediction_aliases() -> dict[str, list[str]]:
         "NetMHC_percentile": ["NetMHC_percentile"],
         "NetMHCpan_percentile": ["NetMHCpan_percentile"],
         "NetMHCpanEL_percentile": ["NetMHCpanEL_percentile", "NetMHCpan_EL_percentile"],
+        "NetMHCIIpan_percentile": ["NetMHCIIpan_percentile"],
+        "NetMHCIIpanEL_percentile": ["NetMHCIIpanEL_percentile", "NetMHCIIpan_EL_percentile"],
         "MixMHCpred_percentile": ["MixMHCpred_percentile"],
         "PRIME_percentile": ["PRIME_percentile"],
         "DeepImmuno_percentile": ["DeepImmuno_percentile"],
@@ -149,17 +155,44 @@ def _prediction_aliases() -> dict[str, list[str]]:
     }
 
 
+def _read_class_ii_predictions(path: Path, allele: str) -> pd.DataFrame:
+    """Load the class II predictions for one allele only.
+
+    predictions_classII.parquet holds 2.75M rows, so reading it whole on every
+    query -- including the class I queries that can never match it -- would cost
+    more than the join it feeds. Push the allele filter down to the Parquet
+    reader instead, which skips the row groups that cannot contain it.
+    """
+    criteria = [("hla_allele", "==", str(allele).strip())]
+    try:
+        return pd.read_parquet(path, filters=criteria)
+    except (TypeError, ValueError, NotImplementedError):
+        # Older pyarrow, or an engine without predicate pushdown: fall back to
+        # reading the file and filtering in pandas.
+        frame = pd.read_parquet(path)
+        if "hla_allele" not in frame.columns:
+            return frame
+        return frame[frame["hla_allele"].astype(str).str.strip() == str(allele).strip()]
+
+
 def _merge_predictions(df: pd.DataFrame, bio_dir: Path, allele: str) -> pd.DataFrame:
     """
-    Merge all prediction tools present in predictions.parquet.
+    Merge all prediction tools present in the prediction tables.
 
-    The user's current table contains:
+    predictions.parquet holds the class I tools:
       BigMHC-EL, BigMHC-IM, NetMHC, NetMHCpan, NetMHCpan-EL,
       MixMHCpred-EL, MHCflurry-BA, MHCflurry-EL, MHCflurry-PS,
       PRIME, DeepImmuno, TLImm,
       plus prediction percentile columns.
+
+    predictions_classII.parquet holds the class II tools (NetMHCIIpan-EL,
+    NetMHCIIpan-BA and their percentiles). The two are keyed the same way, on
+    (peptide_sequence, hla_allele), and no allele appears in both, so the filter
+    below selects from whichever table the requested allele belongs to and
+    ``_available_tools`` drops the other table's columns as all-NaN.
     """
     path = bio_dir / "predictions.parquet"
+    class_ii_path = bio_dir / "predictions_classII.parquet"
     display_tools = BINDING_TOOLS + IMMUNOGENICITY_TOOLS
     aliases = _prediction_aliases()
 
@@ -168,10 +201,16 @@ def _merge_predictions(df: pd.DataFrame, bio_dir: Path, allele: str) -> pd.DataF
         if col not in out.columns:
             out[col] = np.nan
 
-    if not path.exists():
+    frames = []
+    if path.exists():
+        frames.append(pd.read_parquet(path))
+    if class_ii_path.exists():
+        frames.append(_read_class_ii_predictions(class_ii_path, allele))
+    frames = [f for f in frames if not f.empty]
+    if not frames:
         return out
 
-    pred = pd.read_parquet(path)
+    pred = frames[0] if len(frames) == 1 else pd.concat(frames, ignore_index=True)
     peptide_col = _find_column(
         pred,
         ["peptide_sequence", "peptide", "subject", "epitope", "sequence"],

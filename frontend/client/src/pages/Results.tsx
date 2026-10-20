@@ -23,6 +23,8 @@ const DEFAULT_BINDING_TOOLS = [
   "MHCflurry-BA",
   "NetMHCpan-BA",
   "NetMHC-BA",
+  "NetMHCIIpan-EL",
+  "NetMHCIIpan-BA",
 ];
 
 const DEFAULT_IMMUNOGENICITY_TOOLS = [

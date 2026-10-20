@@ -15,6 +15,8 @@ BINDING_TOOLS = [
     "MHCflurry-BA",
     "NetMHCpan-BA",
     "NetMHC-BA",
+    "NetMHCIIpan-EL",
+    "NetMHCIIpan-BA",
 ]
 
 IMMUNOGENICITY_TOOLS = [
@@ -44,6 +46,8 @@ TOOL_UNITS = {
     "MixMHCpred-EL": "log score",
     "NetMHCpan-BA": "nM, lower = stronger",
     "NetMHC-BA": "nM, lower = stronger",
+    "NetMHCIIpan-EL": "EL score, 0-1",
+    "NetMHCIIpan-BA": "nM, lower = stronger",
     "DeepImmuno": "score, 0-1",
     "PRIME": "score, 0-1",
     "BigMHC-IM": "score, 0-1",
@@ -59,7 +63,7 @@ def tool_axis_label(tool: str) -> str:
 
 # Affinities (nM) span four orders of magnitude, so they are drawn on a log y
 # axis. Every other tool reports a bounded score and stays linear.
-LOG_SCALE_TOOLS = {"NetMHC-BA", "NetMHCpan-BA", "MHCflurry-BA"}
+LOG_SCALE_TOOLS = {"NetMHC-BA", "NetMHCpan-BA", "MHCflurry-BA", "NetMHCIIpan-BA"}
 
 
 def _panel_series(data: pd.DataFrame, tool: str) -> tuple[pd.Series, str, bool]:
