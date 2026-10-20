@@ -36,10 +36,14 @@ The source bundle intentionally does **not** duplicate the production CrossDome 
    - `sysdata.rda` containing `MDS_COMPONENTS` and `BLOSUM80`, or
    - `MDS_COMPONENTS.csv` plus `BLOSUM80.csv`.
 
-## Human-only optional files
+## Optional files
 
-- `peptide_annotation.parquet` — peptide-to-gene annotation. Expected to contain `peptide_sequence` and `ensembl_id`.
-- `hpa_database.parquet` — gene/tissue expression matrix keyed by `ensembl_id`.
-- `predictions.parquet` — peptide prediction table. CrossDome searches common aliases for peptide, allele, BigMHC-EL, NetMHCpan-EL, DeepImmuno, and TLImm columns.
+- `peptide_annotation.parquet` — peptide-to-gene annotation. Expected to contain `peptide_sequence` and `ensembl_id`. **Human only.**
+- `hpa_database.parquet` — gene/tissue expression matrix keyed by `ensembl_id`. **Human only.**
+- `predictions*.parquet` — the peptide prediction tables, all keyed on `peptide_sequence` + `hla_allele`. CrossDome reads every file matching that glob and searches common aliases for the peptide, allele and per-tool columns.
+  - class I — `predictions.parquet` and `predictions_classI_NN.parquet`: BigMHC-EL/-IM, NetMHC, NetMHCpan, NetMHCpan-EL, MixMHCpred, MHCflurry-BA/-EL/-PS, PRIME, DeepImmuno, TLImm, plus `*_percentile` columns.
+  - class II — `predictions_classII.parquet`: NetMHCIIpan-EL, NetMHCIIpan-BA and their percentiles.
+
+  The class I table is split into contiguous allele ranges only to keep every file under GitHub's 100 MB limit; an allele lives in exactly one file, which is what lets a query read each file filtered by allele. `backend/tools/run_predictions.py merge` rewrites the whole set.
 
 If these optional files are missing, the core RDS analysis still runs. The corresponding heatmap or prediction plots are simply omitted.

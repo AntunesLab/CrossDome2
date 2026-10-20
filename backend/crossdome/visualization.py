@@ -179,13 +179,19 @@ def generate_expression_heatmap(
 def plot_prediction_tools(
     result_df: pd.DataFrame,
     binding_tool: str,
-    immunogenicity_tool: str,
+    immunogenicity_tool: str | None = None,
     top_n: int = 30,
 ):
-    """Create the two-panel prediction plot used by the frontend."""
+    """Create the prediction plot used by the frontend.
+
+    Two panels, binding over immunogenicity. ``immunogenicity_tool=None`` draws
+    the binding panel alone, which is what class II queries get: every
+    immunogenicity model in the panel is class I only, so pairing would mean no
+    figure at all for an allele whose binding predictions do exist.
+    """
     if binding_tool not in BINDING_TOOLS:
         raise ValueError(f"Unknown binding tool: {binding_tool}")
-    if immunogenicity_tool not in IMMUNOGENICITY_TOOLS:
+    if immunogenicity_tool is not None and immunogenicity_tool not in IMMUNOGENICITY_TOOLS:
         raise ValueError(f"Unknown immunogenicity tool: {immunogenicity_tool}")
 
     order_col = "rank" if "rank" in result_df.columns else "relatedness_score"
@@ -195,14 +201,15 @@ def plot_prediction_tools(
         raise ValueError("Result table must contain a 'subject' column.")
 
     x = np.arange(len(data))
-    fig, axes = plt.subplots(2, 1, figsize=(14, 8), sharex=True)
+    tools = [binding_tool] if immunogenicity_tool is None else [binding_tool, immunogenicity_tool]
+    fig, axes = plt.subplots(
+        len(tools), 1, figsize=(14, 4.5 * len(tools)), sharex=True, squeeze=False
+    )
+    axes = axes[:, 0]
 
     # Panel order matches the frontend dropdowns: binding on top,
     # immunogenicity below.
-    panels = [
-        (axes[0], binding_tool),
-        (axes[1], immunogenicity_tool),
-    ]
+    panels = list(zip(axes, tools))
 
     for ax, col in panels:
         values, label, use_log = _panel_series(data, col)
@@ -226,9 +233,14 @@ def plot_prediction_tools(
                 va="center",
             )
 
-    axes[0].set_title(f"{binding_tool} and {immunogenicity_tool} predictions")
-    axes[1].set_xticks(x)
-    axes[1].set_xticklabels(data["subject"].astype(str), rotation=90)
-    axes[1].set_xlabel("Peptide")
+    title = (
+        f"{binding_tool} predictions"
+        if immunogenicity_tool is None
+        else f"{binding_tool} and {immunogenicity_tool} predictions"
+    )
+    axes[0].set_title(title)
+    axes[-1].set_xticks(x)
+    axes[-1].set_xticklabels(data["subject"].astype(str), rotation=90)
+    axes[-1].set_xlabel("Peptide")
     fig.tight_layout()
     return fig

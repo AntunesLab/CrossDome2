@@ -84,8 +84,13 @@ def _available_tools(result_df: pd.DataFrame, tools: list[str]) -> list[str]:
     return available
 
 
-def _save_human_outputs(result, output_dir: Path, query: str) -> dict[str, Any]:
-    """Write the expression and prediction figures for one query peptide."""
+def _save_query_outputs(result, output_dir: Path, query: str) -> dict[str, Any]:
+    """Write the expression and prediction figures for one query peptide.
+
+    Prediction figures are written for every species that has values; the
+    expression heatmap is human-only because the HPA table is, and
+    ``cross_compose`` leaves the expression matrix empty for other systems.
+    """
     output_dir.mkdir(parents=True, exist_ok=True)
 
     available_binding = _available_tools(result.result, BINDING_TOOLS)
@@ -110,12 +115,15 @@ def _save_human_outputs(result, output_dir: Path, query: str) -> dict[str, Any]:
 
     # Generate only valid combinations. This prevents a dropdown choice from
     # pointing to a plot whose selected prediction column is completely empty.
+    #
+    # `None` stands for "no immunogenicity panel", which is what a class II
+    # query gets: every immunogenicity model here is class I only, so pairing
+    # unconditionally would leave NetMHCIIpan's binding values with no figure
+    # and hide the whole plot card on the results page.
     for binding in available_binding:
-        for immuno in available_immunogenicity:
-            filename = (
-                f"prediction_{query}_{binding.replace('-', '_')}"
-                f"_{immuno.replace('-', '_')}.png"
-            )
+        for immuno in available_immunogenicity or [None]:
+            suffix = f"_{immuno.replace('-', '_')}" if immuno else ""
+            filename = f"prediction_{query}_{binding.replace('-', '_')}{suffix}.png"
             fig = plot_prediction_tools(
                 result.result,
                 binding_tool=binding,
@@ -125,7 +133,10 @@ def _save_human_outputs(result, output_dir: Path, query: str) -> dict[str, Any]:
             fig.savefig(output_dir / filename, dpi=250, bbox_inches="tight")
             plt.close(fig)
 
-            outputs["prediction_plots"][f"{binding}__{immuno}"] = {
+            # The key is what the frontend looks a plot up by, so it keeps the
+            # `binding__immuno` shape with an empty second half when there is
+            # no immunogenicity panel.
+            outputs["prediction_plots"][f"{binding}__{immuno or ''}"] = {
                 "binding_tool": binding,
                 "immunogenicity_tool": immuno,
                 "filename": filename,
@@ -171,6 +182,10 @@ def run_analysis(
     }
 
     for query in query_peptides:
+        # Expression is human-only because the HPA table is. Predictions are
+        # not: the prediction tables now carry mouse, rat, dog, swine and
+        # bovine alleles, and gating them on species hid every one of those
+        # values from both the web app and the CLI.
         is_human = species.lower() == "human"
 
         result = cross_compose(
@@ -178,7 +193,7 @@ def run_analysis(
             background=background,
             bio_database_dir=bio_dir,
             position_weight=tcr_weights,
-            include_predictions=is_human,
+            include_predictions=True,
             include_expression=is_human,
         )
         result.metadata.update(
@@ -192,8 +207,8 @@ def run_analysis(
         # One figure set per query. The frontend shows the set for the query
         # selected on the results page. Skipped without an output_dir, which is
         # how the command-line tool runs (CSV only, no figures).
-        if is_human and output_dir:
-            per_query = _save_human_outputs(result, Path(output_dir), query)
+        if output_dir:
+            per_query = _save_query_outputs(result, Path(output_dir), query)
             outputs["per_query"][query] = per_query
             for key, known in (
                 ("binding_tools", BINDING_TOOLS),

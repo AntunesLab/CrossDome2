@@ -155,13 +155,14 @@ def _prediction_aliases() -> dict[str, list[str]]:
     }
 
 
-def _read_class_ii_predictions(path: Path, allele: str) -> pd.DataFrame:
-    """Load the class II predictions for one allele only.
+def _read_predictions_for_allele(path: Path, allele: str) -> pd.DataFrame:
+    """Load one prediction table's rows for a single allele.
 
-    predictions_classII.parquet holds 2.75M rows, so reading it whole on every
-    query -- including the class I queries that can never match it -- would cost
-    more than the join it feeds. Push the allele filter down to the Parquet
-    reader instead, which skips the row groups that cannot contain it.
+    The tables hold 4.8M rows between them, so reading one whole on every query
+    -- including the queries whose allele it cannot contain -- would cost more
+    than the join it feeds. Push the allele filter down to the Parquet reader
+    instead, which skips the row groups that cannot match; each table is written
+    sorted by allele with one row group per allele for exactly this.
     """
     criteria = [("hla_allele", "==", str(allele).strip())]
     try:
@@ -179,20 +180,21 @@ def _merge_predictions(df: pd.DataFrame, bio_dir: Path, allele: str) -> pd.DataF
     """
     Merge all prediction tools present in the prediction tables.
 
-    predictions.parquet holds the class I tools:
-      BigMHC-EL, BigMHC-IM, NetMHC, NetMHCpan, NetMHCpan-EL,
-      MixMHCpred-EL, MHCflurry-BA, MHCflurry-EL, MHCflurry-PS,
-      PRIME, DeepImmuno, TLImm,
-      plus prediction percentile columns.
+    Every ``predictions*.parquet`` in the database directory is one part of one
+    table, all keyed on (peptide_sequence, hla_allele):
 
-    predictions_classII.parquet holds the class II tools (NetMHCIIpan-EL,
-    NetMHCIIpan-BA and their percentiles). The two are keyed the same way, on
-    (peptide_sequence, hla_allele), and no allele appears in both, so the filter
-    below selects from whichever table the requested allele belongs to and
-    ``_available_tools`` drops the other table's columns as all-NaN.
+      class I   -- BigMHC-EL, BigMHC-IM, NetMHC, NetMHCpan, NetMHCpan-EL,
+                   MixMHCpred-EL, MHCflurry-BA, MHCflurry-EL, MHCflurry-PS,
+                   PRIME, DeepImmuno, TLImm, plus percentile columns.
+                   2.0M rows over contiguous allele ranges, so no single file
+                   crosses GitHub's 100 MB limit (``run_predictions.py merge``).
+      class II  -- NetMHCIIpan-EL, NetMHCIIpan-BA and their percentiles.
+
+    An allele lives in exactly one part, so reading each part filtered by the
+    requested allele returns rows from one of them and nothing from the others;
+    ``_available_tools`` then drops the columns the matched part does not carry
+    as all-NaN. Adding a part needs no code change here.
     """
-    path = bio_dir / "predictions.parquet"
-    class_ii_path = bio_dir / "predictions_classII.parquet"
     display_tools = BINDING_TOOLS + IMMUNOGENICITY_TOOLS
     aliases = _prediction_aliases()
 
@@ -201,11 +203,10 @@ def _merge_predictions(df: pd.DataFrame, bio_dir: Path, allele: str) -> pd.DataF
         if col not in out.columns:
             out[col] = np.nan
 
-    frames = []
-    if path.exists():
-        frames.append(pd.read_parquet(path))
-    if class_ii_path.exists():
-        frames.append(_read_class_ii_predictions(class_ii_path, allele))
+    frames = [
+        _read_predictions_for_allele(path, allele)
+        for path in sorted(bio_dir.glob("predictions*.parquet"))
+    ]
     frames = [f for f in frames if not f.empty]
     if not frames:
         return out

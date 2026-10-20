@@ -57,7 +57,9 @@ interface ResultRow {
 
 interface PredictionPlotMeta {
   binding_tool: string;
-  immunogenicity_tool: string;
+  // null on a binding-only plot, i.e. a class II job, where no immunogenicity
+  // model applies to the allele.
+  immunogenicity_tool: string | null;
   filename?: string;
   url?: string;
 }
@@ -166,11 +168,15 @@ export default function Results() {
         // empty selection then means "every row", which is what it wants.
         setSelectedQuery(responseQueries[0]?.query ?? "");
 
-        if (responseOutputs.binding_tools?.length) {
-          setBindingTool(responseOutputs.binding_tools[0]);
+        // An empty list means the backend found no tool of that kind with data
+        // for this allele -- class II has no immunogenicity model -- so the
+        // selection is cleared rather than left on a class I default that no
+        // plot was generated for. Only a missing field falls back.
+        if (responseOutputs.binding_tools) {
+          setBindingTool(responseOutputs.binding_tools[0] ?? "");
         }
-        if (responseOutputs.immunogenicity_tools?.length) {
-          setImmunogenicityTool(responseOutputs.immunogenicity_tools[0]);
+        if (responseOutputs.immunogenicity_tools) {
+          setImmunogenicityTool(responseOutputs.immunogenicity_tools[0] ?? "");
         }
       } catch (err) {
         console.error("Error fetching results:", err);
@@ -230,15 +236,17 @@ export default function Results() {
     return isFirstQuery ? outputs : {};
   }, [outputs, selectedQuery, queries]);
 
-  const bindingTools = outputs.binding_tools?.length
-    ? outputs.binding_tools
-    : DEFAULT_BINDING_TOOLS;
+  const bindingTools = outputs.binding_tools ?? DEFAULT_BINDING_TOOLS;
+  const immunogenicityTools = outputs.immunogenicity_tools ?? DEFAULT_IMMUNOGENICITY_TOOLS;
 
-  const immunogenicityTools = outputs.immunogenicity_tools?.length
-    ? outputs.immunogenicity_tools
-    : DEFAULT_IMMUNOGENICITY_TOOLS;
+  // Predictions are no longer human-only: the prediction tables carry mouse,
+  // rat, dog, swine and bovine alleles too, so the table columns follow whether
+  // this job actually has values rather than which species it ran on.
+  const hasPredictions = !isCompareMode && bindingTools.length > 0;
 
   const selectedPredictionPlot = useMemo(() => {
+    // Matches the backend key, whose second half is empty for a binding-only
+    // plot (class II, where no immunogenicity model applies).
     const key = `${bindingTool}__${immunogenicityTool}`;
     return figures.prediction_plots?.[key];
   }, [figures, bindingTool, immunogenicityTool]);
@@ -382,7 +390,9 @@ export default function Results() {
                 <div>
                   <h2 className="text-lg font-semibold">Systems analysis table</h2>
                   <p className="text-muted-foreground">
-                    Human expression and prediction plots are not generated for other-systems analyses.
+                    Human gene expression and tissue specificity are not generated for
+                    other-systems analyses. Binding and immunogenicity predictions are shown
+                    wherever this allele has them.
                   </p>
                 </div>
               </Card>
@@ -402,7 +412,7 @@ export default function Results() {
               </Card>
             )}
 
-            {isHumanAnalysis && figures.prediction_plots && Object.keys(figures.prediction_plots).length > 0 && (
+            {!isCompareMode && figures.prediction_plots && Object.keys(figures.prediction_plots).length > 0 && (
               <Card className="glass border-white/10 p-4">
                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
                   <div>
@@ -429,18 +439,20 @@ export default function Results() {
                       </select>
                     </label>
 
-                    <label className="text-sm">
-                      Immunogenicity tool
-                      <select
-                        value={immunogenicityTool}
-                        onChange={(e) => setImmunogenicityTool(e.target.value)}
-                        className="ml-2 rounded-md bg-background border border-white/20 px-3 py-2"
-                      >
-                        {immunogenicityTools.map((tool) => (
-                          <option key={tool} value={tool}>{tool}</option>
-                        ))}
-                      </select>
-                    </label>
+                    {immunogenicityTools.length > 0 && (
+                      <label className="text-sm">
+                        Immunogenicity tool
+                        <select
+                          value={immunogenicityTool}
+                          onChange={(e) => setImmunogenicityTool(e.target.value)}
+                          className="ml-2 rounded-md bg-background border border-white/20 px-3 py-2"
+                        >
+                          {immunogenicityTools.map((tool) => (
+                            <option key={tool} value={tool}>{tool}</option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
                   </div>
                 </div>
 
@@ -481,10 +493,12 @@ export default function Results() {
                       <th className="px-4 py-3 text-right text-sm font-semibold">P-value</th>
                       <th className="px-4 py-3 text-right text-sm font-semibold">Adj. P-value</th>
 
-                      {isHumanAnalysis && (
+                      {hasPredictions && (
                         <>
                           <th className="px-4 py-3 text-right text-sm font-semibold">{bindingTool}</th>
-                          <th className="px-4 py-3 text-right text-sm font-semibold">{immunogenicityTool}</th>
+                          {immunogenicityTool && (
+                            <th className="px-4 py-3 text-right text-sm font-semibold">{immunogenicityTool}</th>
+                          )}
                         </>
                       )}
 
@@ -521,14 +535,16 @@ export default function Results() {
                         <td className="px-4 py-3 text-sm text-right font-mono">{fmtP(row.pvalue)}</td>
                         <td className="px-4 py-3 text-sm text-right font-mono">{fmtP(row.pvalue_adj)}</td>
 
-                        {isHumanAnalysis && (
+                        {hasPredictions && (
                           <>
                             <td className="px-4 py-3 text-sm text-right font-mono">
                               {fmtNumber(row[bindingTool], 3)}
                             </td>
-                            <td className="px-4 py-3 text-sm text-right font-mono">
-                              {fmtNumber(row[immunogenicityTool], 3)}
-                            </td>
+                            {immunogenicityTool && (
+                              <td className="px-4 py-3 text-sm text-right font-mono">
+                                {fmtNumber(row[immunogenicityTool], 3)}
+                              </td>
+                            )}
                           </>
                         )}
 
