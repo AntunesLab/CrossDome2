@@ -45,3 +45,11 @@ graphify-out/
 .gitattributes
 .claude/
 CLAUDE.md
+
+# Prediction generation: per-(tool, allele) shards are intermediates rebuilt by
+# backend/tools/run_predictions.py, and the cached allele lists are copied out
+# of licensed tool images -- neither belongs in the public repo. The mapping
+# table itself (allele_name_map.csv) is ours and is tracked.
+backend/bio-database/predictions/
+backend/bio-database/allele_name_map_wide.csv
+backend/tools/allele_lists/
