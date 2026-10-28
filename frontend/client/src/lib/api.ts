@@ -109,3 +109,80 @@ export async function submitCrossDomeJob(formData: FormData): Promise<string> {
 
   return data.job_id as string;
 }
+
+// Job states as the asynchronous deployment reports them. Several spellings are
+// accepted because the status endpoint is a deployment-side layer, not part of
+// this repo's backend, so its vocabulary is not ours to fix.
+const COMPLETE_STATES = new Set(["complete", "completed", "done", "finished"]);
+const FAILED_STATES = new Set(["error", "failed"]);
+const PENDING_STATES = new Set(["pending", "queued", "running", "in_progress", "processing", "started"]);
+
+const STATUS_POLL_MS = 3000;
+
+// A web analyze job is capped at MAX_ANALYZE_PEPTIDES, so a few minutes is the
+// normal remote runtime. The ceiling only stops the page polling a wedged job
+// forever; the job id stays valid, so the link still works afterwards.
+const STATUS_TIMEOUT_MS = 30 * 60 * 1000;
+
+/**
+ * "complete" once the job is finished, or "unsupported" when this deployment
+ * answers no job status endpoint. The backend in this repo is one of those: it
+ * runs the computation inside the first GET /job/<id>/results, which blocks
+ * until the result is ready, so there is nothing to poll and the caller should
+ * go straight to that request.
+ */
+export type JobWaitResult = "complete" | "unsupported";
+
+/**
+ * Wait for an asynchronous backend to finish a job before its results are read.
+ *
+ * Returning "unsupported" rather than throwing on anything unrecognized is
+ * deliberate: a missing or unfamiliar status endpoint is not evidence that the
+ * analysis failed, and the blocking results call still works in that case.
+ */
+export async function waitForJobComplete(
+  jobId: string,
+  options: { signal?: AbortSignal; onProgress?: (state: string) => void } = {}
+): Promise<JobWaitResult> {
+  const deadline = Date.now() + STATUS_TIMEOUT_MS;
+
+  for (;;) {
+    let response: Response;
+    try {
+      response = await fetch(`${API_BASE_URL}/api/v1/job/${jobId}/status`, { signal: options.signal });
+    } catch (err) {
+      if (options.signal?.aborted) throw err;
+      return "unsupported";
+    }
+
+    let payload: Record<string, unknown>;
+    try {
+      payload = JSON.parse(await response.text());
+    } catch {
+      // Flask answers an unknown route with an HTML 404, and CloudFront masks a
+      // missed origin as 200 plus the SPA shell. Neither is a job state.
+      return "unsupported";
+    }
+
+    const state = String(payload?.job_status ?? payload?.status ?? "").toLowerCase();
+
+    if (COMPLETE_STATES.has(state)) return "complete";
+    if (FAILED_STATES.has(state)) {
+      throw new Error(String(payload?.message || payload?.error || "Analysis failed"));
+    }
+    if (!PENDING_STATES.has(state)) {
+      // Covers the {"status": "ok"} envelope of a route that is not a job
+      // status at all: unrecognized means unknown, not unfinished.
+      return "unsupported";
+    }
+
+    options.onProgress?.(state);
+
+    if (Date.now() >= deadline) {
+      throw new Error(
+        "The analysis is still running after 30 minutes. Keep this link -- the results appear here once it finishes."
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, STATUS_POLL_MS));
+  }
+}

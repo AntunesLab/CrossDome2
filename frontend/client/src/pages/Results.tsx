@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { ArrowLeft, Download, Loader2, AlertCircle, Info } from "lucide-react";
-import { API_BASE_URL } from "@/lib/api";
+import { API_BASE_URL, waitForJobComplete } from "@/lib/api";
 import { Header, PageShell } from "./shared";
 
 const DISPLAY_ROWS = 50;
@@ -136,6 +136,7 @@ export default function Results() {
   const [metadata, setMetadata] = useState<AnalysisMetadata>({});
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingRows, setIsLoadingRows] = useState(false);
+  const [jobState, setJobState] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [bindingTool, setBindingTool] = useState(DEFAULT_BINDING_TOOLS[0]);
   const [immunogenicityTool, setImmunogenicityTool] = useState(DEFAULT_IMMUNOGENICITY_TOOLS[0]);
@@ -147,9 +148,20 @@ export default function Results() {
       return;
     }
 
+    const controller = new AbortController();
+
     const fetchMetadata = async () => {
       try {
-        const analysisResponse = await fetch(`${API_BASE_URL}/api/v1/job/${jobId}/results`);
+        // An asynchronous deployment returns from /results before the figures
+        // are written, so the job has to be known finished first. Against the
+        // synchronous backend in this repo there is no status endpoint and this
+        // resolves immediately -- the /results call below is itself the wait.
+        await waitForJobComplete(jobId, { signal: controller.signal, onProgress: setJobState });
+
+        const analysisResponse = await fetch(
+          `${API_BASE_URL}/api/v1/job/${jobId}/results`,
+          { signal: controller.signal }
+        );
         const analysisData = await analysisResponse.json();
 
         if (!analysisResponse.ok || analysisData.status !== "ok") {
@@ -179,16 +191,18 @@ export default function Results() {
           setImmunogenicityTool(responseOutputs.immunogenicity_tools[0] ?? "");
         }
       } catch (err) {
+        if (controller.signal.aborted) return;
         console.error("Error fetching results:", err);
         const message = err instanceof Error ? err.message : "Error loading results";
         setError(message);
         toast.error(message);
       } finally {
-        setIsLoading(false);
+        if (!controller.signal.aborted) setIsLoading(false);
       }
     };
 
     fetchMetadata();
+    return () => controller.abort();
   }, [jobId]);
 
   // Row window for the selected query. start/end are relative to that query,
@@ -272,6 +286,13 @@ export default function Results() {
             <Loader2 className="w-12 h-12 animate-spin text-primary mx-auto" />
             <h2 className="text-2xl font-semibold">Processing analysis</h2>
             <p className="text-muted-foreground">Please wait while CrossDome analyzes your data.</p>
+            {jobState === "pending" || jobState === "queued" ? (
+              <p className="text-sm text-muted-foreground">Queued on the server.</p>
+            ) : jobState ? (
+              <p className="text-sm text-muted-foreground">
+                Running on the server. This can take a few minutes for a remote job.
+              </p>
+            ) : null}
           </Card>
         </main>
       </PageShell>
