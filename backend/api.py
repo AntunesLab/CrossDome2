@@ -100,9 +100,16 @@ def _bio_dir():
     return Path(current_app.config["BIO_DATABASE_DIR"])
 
 
-def _output_dir(job_id: str):
+def _output_dir(job_id: str, *, create: bool = True):
+    """Resolve a job's figure directory.
+
+    Read paths pass `create=False`: the job id comes from the URL, so creating
+    the directory before the job is known lets an unauthenticated request make
+    arbitrary empty directories under OUTPUT_DIR.
+    """
     path = Path(current_app.config["OUTPUT_DIR"]) / job_id
-    path.mkdir(parents=True, exist_ok=True)
+    if create:
+        path.mkdir(parents=True, exist_ok=True)
     return path
 
 
@@ -279,4 +286,6 @@ def download_csv(job_id):
 
 @bp.get("/job/<job_id>/outputs/<filename>")
 def output_file(job_id, filename):
-    return send_from_directory(_output_dir(job_id), filename)
+    if not get_job(_db_path(), job_id):
+        return jsonify({"status": "error", "message": "Job not found."}), 404
+    return send_from_directory(_output_dir(job_id, create=False), filename)
