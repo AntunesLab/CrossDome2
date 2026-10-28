@@ -4,8 +4,10 @@ import csv
 import io
 import math
 import os
+import threading
 import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -17,6 +19,12 @@ from crossdome.runner import database_path, handle_request
 from jobs import create_job, get_job, update_job
 
 bp = Blueprint("crossdome", __name__, url_prefix="/api/v1")
+
+# How long a results request waits on a job that another worker is already
+# running. Hitting this does not cancel the job -- the caller is told to poll
+# /status instead, which is what a browser does anyway.
+RESULTS_WAIT_TIMEOUT = 600
+RESULTS_WAIT_INTERVAL = 0.5
 
 
 def _json_safe(value):
@@ -37,6 +45,18 @@ def _json_safe(value):
 
 def _clean_rows(rows):
     return [{k: _json_safe(v) for k, v in row.items()} for row in rows]
+
+
+def _iso_z(created_at: str | None):
+    """Render a stored timestamp the way the deployed backend reports it."""
+    if not created_at:
+        return None
+    try:
+        parsed = datetime.fromisoformat(created_at)
+    except ValueError:
+        return created_at
+    stamped = parsed.astimezone(timezone.utc).replace(microsecond=0)
+    return stamped.isoformat().replace("+00:00", "Z")
 
 
 def _urlify_outputs(job_id: str, outputs: dict) -> None:
@@ -190,7 +210,84 @@ def submit_form():
         "tcr_weights": request.form.get("tcrWeights", "").strip(),
     }
     create_job(_db_path(), instructions, request.form.get("user_email"), job_id=job_id)
+    _dispatch_job(job_id)
     return jsonify({"status": "ok", "job_id": job_id, "message": "Parameters stored"})
+
+
+def _compute_job(app, job_id: str) -> dict:
+    """Run a job to completion and record it. Raises if the analysis failed."""
+    with app.app_context():
+        job = get_job(_db_path(), job_id)
+        if not job:
+            raise LookupError("Job not found.")
+        try:
+            update_job(_db_path(), job_id, status="running")
+            started = time.monotonic()
+            result = handle_request(job["instructions"], _bio_dir(), _output_dir(job_id))
+            result.setdefault("metadata", {})["runtime_seconds"] = round(time.monotonic() - started, 1)
+            result["rows"] = _clean_rows(result["rows"])
+            update_job(_db_path(), job_id, status="complete", result=result, error="")
+            return result
+        except Exception as exc:
+            update_job(_db_path(), job_id, status="error", error=str(exc))
+            app.logger.exception("CrossDome job failed")
+            raise
+
+
+def _dispatch_job(job_id: str) -> None:
+    """Start a submitted job in the background so submit returns immediately.
+
+    The thread is a daemon, so a job still in flight when the process exits
+    stays marked "running" -- the next results request waits on it, finds no
+    progress and reports that rather than silently recomputing on top of a
+    worker that may still be alive in another process.
+    """
+    app = current_app._get_current_object()
+
+    def runner():
+        try:
+            _compute_job(app, job_id)
+        except Exception:
+            # Already recorded on the job row; a poller reads it from there.
+            pass
+
+    threading.Thread(target=runner, name=f"crossdome-job-{job_id[:8]}", daemon=True).start()
+
+
+def _wait_for_result(job_id: str):
+    """Wait for a job another worker is running, rather than recomputing it."""
+    deadline = time.monotonic() + RESULTS_WAIT_TIMEOUT
+    while time.monotonic() < deadline:
+        time.sleep(RESULTS_WAIT_INTERVAL)
+        job = get_job(_db_path(), job_id)
+        if not job or job["status"] == "error":
+            return None
+        if job["status"] == "complete" and job["result"]:
+            return job["result"]
+    return None
+
+
+@bp.get("/job/<job_id>/status")
+def job_status(job_id):
+    """Report a job's state without computing or returning its result.
+
+    The shape matches what the deployed asynchronous backend already answers,
+    so one client can poll either. Note `status` and `job_status` are different
+    things on purpose: `status` is the envelope every route here returns, and
+    `job_status` is the job's own state. A client that reads `status` sees "ok"
+    on a job that has not started.
+    """
+    job = get_job(_db_path(), job_id)
+    if not job:
+        return jsonify({"status": "error", "message": "Job not found."}), 404
+    return jsonify({
+        "status": "ok",
+        "job_id": job_id,
+        "job_status": job["status"],
+        "tool": "crossdome-backend",
+        "created_at": _iso_z(job["created_at"]),
+        "error": job["error"] or None,
+    })
 
 
 @bp.get("/job/<job_id>/results")
@@ -201,17 +298,25 @@ def results(job_id):
 
     if job["status"] == "complete" and job["result"]:
         result = job["result"]
+    elif job["status"] == "running":
+        # Submitted jobs run in a background thread, so a caller that asks for
+        # results mid-flight waits for that worker instead of starting a second
+        # one over the same output directory.
+        result = _wait_for_result(job_id)
+        if result is None:
+            refreshed = get_job(_db_path(), job_id) or {}
+            return jsonify({
+                "status": "error",
+                "job_status": refreshed.get("status", "running"),
+                "message": refreshed.get("error") or "The analysis is still running. Poll the status endpoint.",
+            }), 503
     else:
+        # Still pending: either dispatch never happened, or the job predates it.
+        # Running it inline keeps this endpoint's original blocking contract for
+        # API and script callers that never poll.
         try:
-            update_job(_db_path(), job_id, status="running")
-            started = time.monotonic()
-            result = handle_request(job["instructions"], _bio_dir(), _output_dir(job_id))
-            result.setdefault("metadata", {})["runtime_seconds"] = round(time.monotonic() - started, 1)
-            result["rows"] = _clean_rows(result["rows"])
-            update_job(_db_path(), job_id, status="complete", result=result, error="")
+            result = _compute_job(current_app._get_current_object(), job_id)
         except Exception as exc:
-            update_job(_db_path(), job_id, status="error", error=str(exc))
-            current_app.logger.exception("CrossDome job failed")
             return jsonify({"status": "error", "message": str(exc)}), 500
 
     metadata = result.get("metadata", {})
@@ -227,6 +332,7 @@ def results(job_id):
     return jsonify({
         "status": "ok",
         "job_id": job_id,
+        "job_status": "complete",
         "mode": result.get("mode"),
         "total_rows": len(result.get("rows", [])),
         "metadata": metadata,
