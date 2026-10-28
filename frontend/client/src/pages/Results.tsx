@@ -116,10 +116,24 @@ function fmtRuntime(seconds: unknown) {
   return `${minutes}m ${remainder}s`;
 }
 
-function absoluteUrl(url?: string) {
-  if (!url) return "";
-  if (url.startsWith("http")) return url;
-  return `${API_BASE_URL}${url}`;
+/**
+ * Resolve a figure reference to something an <img> can load.
+ *
+ * The backend in this repo rewrites figure filenames into /api/v1/... paths
+ * before sending them, but an asynchronous deployment may return the bare
+ * filename, which would otherwise resolve against the site root and fetch the
+ * SPA shell instead of an image. Rebuilding the path here covers both.
+ *
+ * /outputs/<filename> is the right target either way: it is a stable path that
+ * redirects to a freshly signed object when the figures live in object
+ * storage, where a pre-signed URL carried in the payload would expire.
+ */
+function outputUrl(jobId: string | undefined, ref?: string) {
+  if (!ref) return "";
+  if (ref.startsWith("http")) return ref;
+  if (ref.startsWith("/")) return `${API_BASE_URL}${ref}`;
+  if (!jobId) return "";
+  return `${API_BASE_URL}/api/v1/job/${jobId}/outputs/${encodeURIComponent(ref)}`;
 }
 
 export default function Results() {
@@ -277,6 +291,13 @@ export default function Results() {
 
   const exportHint = `Top ${EXPORT_ROWS_PER_QUERY.toLocaleString()} rows per query peptide`;
 
+  // `url` is what this repo's backend sends; `filename` is the raw value an
+  // asynchronous deployment returns instead.
+  const selectedPredictionPlotUrl = outputUrl(
+    jobId,
+    selectedPredictionPlot?.url ?? selectedPredictionPlot?.filename
+  );
+
   if (isLoading) {
     return (
       <PageShell>
@@ -426,7 +447,7 @@ export default function Results() {
                   {selectedQuery && <span className="font-mono text-primary"> · {selectedQuery}</span>}
                 </h2>
                 <img
-                  src={absoluteUrl(figures.expression_heatmap)}
+                  src={outputUrl(jobId, figures.expression_heatmap)}
                   alt="Peptide expression and tissue specificity"
                   className="w-full rounded-xl border border-white/10 bg-white"
                 />
@@ -477,9 +498,9 @@ export default function Results() {
                   </div>
                 </div>
 
-                {selectedPredictionPlot?.url ? (
+                {selectedPredictionPlotUrl ? (
                   <img
-                    src={absoluteUrl(selectedPredictionPlot.url)}
+                    src={selectedPredictionPlotUrl}
                     alt={`${bindingTool} and ${immunogenicityTool} prediction plot`}
                     className="w-full rounded-xl border border-white/10 bg-white"
                   />
