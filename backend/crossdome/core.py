@@ -12,11 +12,12 @@ from .data_loader import (
     NON_TISSUE_COLUMNS,
     aggregate_peptide_annotation,
     expand_eight_mer,
-    load_annotation_nine_mer_index,
+    load_annotation_nine_mer_subset,
     load_gene_breadth_rank,
     load_gene_expression_breadth,
     load_scoring_data,
     merge_annotation_entries,
+    nine_mer_candidates,
 )
 from .models import XRBackground, XRResult
 from .stats import get_length_parameters
@@ -247,6 +248,24 @@ def _merge_predictions(df: pd.DataFrame, bio_dir: Path, allele: str) -> pd.DataF
     return out
 
 
+def _read_annotation_for_subjects(path: Path, subjects: set) -> pd.DataFrame:
+    """Load only the annotation rows whose peptide was actually scored.
+
+    peptide_annotation.parquet is a 12.3M-row sliding-window digest of the
+    proteome, and the caller keeps only the rows matching the scored subjects,
+    so reading it whole cost ~2.2 GB resident to then discard nearly all of it.
+    Pushing the filter into the Parquet reader materializes just the rows that
+    survive. Mirrors _read_predictions_for_allele, including its fallback.
+    """
+    keys = sorted({str(s) for s in subjects if isinstance(s, str) and s})
+    try:
+        return pd.read_parquet(path, filters=[("peptide_sequence", "in", keys)])
+    except (TypeError, ValueError, NotImplementedError, KeyError):
+        # Older pyarrow, or an engine without predicate pushdown: read it whole
+        # and leave the filtering to the caller, as it was done before.
+        return pd.read_parquet(path)
+
+
 def _add_expression(df: pd.DataFrame, bio_dir: Path):
     annot_path = bio_dir / "peptide_annotation.parquet"
     hpa_path = bio_dir / "hpa_database.parquet"
@@ -254,7 +273,7 @@ def _add_expression(df: pd.DataFrame, bio_dir: Path):
     if not (annot_path.exists() and hpa_path.exists()):
         return df, pd.DataFrame()
 
-    annot = pd.read_parquet(annot_path)
+    annot = _read_annotation_for_subjects(annot_path, set(df["subject"]))
     hpa = pd.read_parquet(hpa_path)
 
     required_annot = {"peptide_sequence", "ensembl_id"}
@@ -300,7 +319,12 @@ def _add_expression(df: pd.DataFrame, bio_dir: Path):
     # what annotation_source records.
     unmatched = merged["peptide_sequence"].isna() & (merged["subject"].str.len() >= 8)
     if unmatched.any():
-        nine_mer_index = load_annotation_nine_mer_index(str(bio_dir.resolve()))
+        # Only the cores of this job's own unmatched peptides are ever looked
+        # up, so the index is read for those keys instead of the whole digest.
+        nine_mer_index = load_annotation_nine_mer_subset(
+            str(bio_dir.resolve()),
+            frozenset(nine_mer_candidates(merged.loc[unmatched, "subject"])),
+        )
         breadth_rank = load_gene_breadth_rank(str(bio_dir.resolve()))
         has_gene_donor_col = "gene_donor" in merged.columns
         has_gene_count_col = "n_source_genes" in merged.columns

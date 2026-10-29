@@ -191,7 +191,11 @@ def load_annotation_nine_mer_index(
     if not path.exists():
         return {}
 
-    annot = pd.read_parquet(path)
+    return _nine_mer_dict(pd.read_parquet(path), bio_database_dir)
+
+
+def _nine_mer_dict(annot: pd.DataFrame, bio_database_dir: str) -> dict:
+    """Collapse annotation rows into the 9-mer -> gene lookup."""
     if "peptide_sequence" not in annot.columns or "ensembl_id" not in annot.columns:
         return {}
     if "gene_donor" not in annot.columns:
@@ -208,6 +212,54 @@ def load_annotation_nine_mer_index(
             zip(nine["ensembl_id"], nine["gene_donor"], nine["n_source_genes"]),
         )
     )
+
+
+def nine_mer_candidates(peptides) -> set:
+    """Every 9-mer the containment fallback could look up for these peptides.
+
+    Kept beside expand_eight_mer so the two stay in lockstep: an 8-mer is
+    re-extended by one residue on each side, and anything longer contributes
+    each of its own 9-mer core windows.
+    """
+    out: set = set()
+    for seq in peptides:
+        if not isinstance(seq, str):
+            continue
+        if len(seq) == 8:
+            for residue in FLANK_RESIDUES:
+                out.add(residue + seq)
+                out.add(seq + residue)
+        elif len(seq) >= 9:
+            for i in range(len(seq) - 8):
+                out.add(seq[i : i + 9])
+    return out
+
+
+def load_annotation_nine_mer_subset(bio_database_dir: str, candidates: frozenset) -> dict:
+    """load_annotation_nine_mer_index restricted to the 9-mers given.
+
+    The full index reads all 12.3M digest rows and leaves a multi-million entry
+    dict resident, when a job only ever looks up the cores of its own unmatched
+    peptides -- a few thousand keys. Filtering the read is the difference
+    between a GB-scale load and a trivial one.
+
+    Deliberately not cached: the key set is per query, so a cache would retain
+    a large object the next query cannot reuse. Collapsing is per peptide and
+    the filter is on whole peptides, so every row for a kept peptide is still
+    present and the resulting entries match the full index exactly.
+    """
+    path = Path(bio_database_dir) / "peptide_annotation.parquet"
+    if not path.exists() or not candidates:
+        return {}
+    try:
+        annot = pd.read_parquet(
+            path, filters=[("peptide_sequence", "in", sorted(candidates))]
+        )
+    except (TypeError, ValueError, NotImplementedError, KeyError):
+        # Older pyarrow, or an engine without predicate pushdown: fall back to
+        # the whole-table index, which is cached and still correct.
+        return load_annotation_nine_mer_index(bio_database_dir)
+    return _nine_mer_dict(annot, bio_database_dir)
 
 
 @lru_cache(maxsize=4)
