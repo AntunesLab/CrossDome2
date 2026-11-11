@@ -6,7 +6,7 @@ This is a clean source bundle for the current CrossDome workflow. It combines th
 
 - Same-length peptide comparison for 8–25 amino acid peptides
 - Length-specific RDS `mu`, `sigma`, p-value thresholds, z-scores, p-values, BH-adjusted p-values, and ranks
-- Human, humanized, mouse, rat, swine, bovine, chicken, and dog database naming support
+- Human, mouse, rat, cattle, chicken, dog, pig, and humanized mouse database support (file stems `human`, `mouse`, `rat`, `bovine`, `chicken`, `dogsl`, `swine`, `humanized` — the stems are the API's species values and are not renamed to match the display labels)
 - MHC class I and II database selection
 - Optional custom peptide database upload
 - Optional TCR positional weights
@@ -89,7 +89,7 @@ In a second terminal:
 
 ```bash
 cd CrossDome-2/frontend
-npm --version (install npm if neeeded)
+npm --version
 npm install
 cp .env.example .env
 npm run dev
@@ -169,13 +169,13 @@ A custom database may be CSV, TSV, TXT, or Parquet. A tabular file should have `
 
 Enter weights as comma- or space-separated non-negative values. One vector is applied to all query peptides in the submitted analysis, so all query peptides must have the same length when weights are supplied. The vector length must equal the peptide length.
 
-## Human-specific outputs
+## Figure outputs
 
-Human analysis can produce:
+An analysis can produce:
 
-- an expression heatmap from `peptide_annotation.parquet` + `hpa_database.parquet`;
-- binding/immunogenicity plots from `predictions.parquet`.
+- an expression heatmap from `peptide_annotation.parquet` + `hpa_database.parquet` — **human only**, since those tables are;
+- binding/immunogenicity plots from the `predictions*.parquet` tables, for any species and either MHC class that has prediction values. Class II alleles get a binding-only plot: every immunogenicity model shipped here is class I.
 
 The tissue-specificity summary plot from older frontend versions is intentionally not part of 2.1.
 
-Other-species and compare modes show RDS/statistical results only.
+Compare mode shows RDS/statistical results only.

@@ -10,7 +10,15 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { buildAnalysisFormData, fetchAlleles, submitCrossDomeJob, type MhcClass, type Species } from "@/lib/api";
+import {
+  buildAnalysisFormData,
+  countQueryPeptides,
+  fetchAlleles,
+  MAX_ANALYZE_PEPTIDES,
+  submitCrossDomeJob,
+  type MhcClass,
+  type Species,
+} from "@/lib/api";
 import { ANALYSIS_SPECIES, MHC_CLASSES } from "@/lib/mhcAlleles";
 import { Header, PageShell } from "./shared";
 
@@ -36,8 +44,8 @@ export default function SpeciesAnalysis() {
     [species],
   );
 
-  // Some species only have peptide data for one MHC class (e.g. Humanized is
-  // Class II only). When switching species, fall back to a class that
+  // Some systems only have peptide data for one MHC class (e.g. Humanized mouse
+  // is Class II only). When switching system, fall back to a class that
   // actually has alleles instead of leaving the user on an empty dropdown.
   useEffect(() => {
     if (!availableClasses.includes(mhcClass)) {
@@ -80,6 +88,24 @@ export default function SpeciesAnalysis() {
       return;
     }
 
+    // The backend enforces this too; checking first avoids uploading a large
+    // peptide list only to have the job rejected.
+    const peptideText =
+      subjectInputType === "text" ? subjectText : await subjectFile!.text();
+    const peptideCount = countQueryPeptides(peptideText);
+    if (peptideCount > MAX_ANALYZE_PEPTIDES) {
+      toast.error(
+        `Analyze mode accepts up to ${MAX_ANALYZE_PEPTIDES} query peptides per job ` +
+          `(found ${peptideCount}). Split them into smaller batches, or use the ` +
+          `command-line tool for larger runs.`
+      );
+      return;
+    }
+    if (peptideCount === 0) {
+      toast.error("No valid query peptides found. Peptides must be 8-25 standard amino acids.");
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const formData = buildAnalysisFormData({
@@ -94,7 +120,7 @@ export default function SpeciesAnalysis() {
       if (customDatabase) formData.append("customDatabase", customDatabase);
       if (tcrWeights.trim()) formData.append("tcrWeights", tcrWeights.trim());
       const jobId = await submitCrossDomeJob(formData);
-      toast.success("Species analysis submitted successfully.");
+      toast.success("Systems analysis submitted successfully.");
       setLocation(`/results/${jobId}`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Error submitting analysis.");
@@ -109,10 +135,10 @@ export default function SpeciesAnalysis() {
       <main className="container pb-24">
         <Card className="glass border-white/10 p-8 max-w-4xl mx-auto">
           <div className="space-y-2 mb-8">
-            <Badge variant="outline" className="border-primary/30 text-primary">Species-specific workflow</Badge>
-            <h2 className="text-3xl font-bold">Other species analysis</h2>
+            <Badge variant="outline" className="border-primary/30 text-primary">System-specific workflow</Badge>
+            <h2 className="text-3xl font-bold">Other systems analysis</h2>
             <p className="text-muted-foreground">
-              Select the species, MHC class, and allele. Expression outputs and dynamic prediction visualizations are hidden for this workflow because expression data are only available for human. The results page will show a static top-30 table with full CSV download.
+              Select the system, MHC class, and allele. Expression outputs and dynamic prediction visualizations are hidden for this workflow because expression data are only available for human. The results page will show a static top-30 table with full CSV download.
             </p>
           </div>
 
@@ -128,26 +154,21 @@ export default function SpeciesAnalysis() {
               ) : (
                 <div className="space-y-2"><Input type="file" accept=".csv,.txt" onChange={(e) => setSubjectFile(e.target.files?.[0] ?? null)} className="glass" /><p className="text-sm text-muted-foreground flex items-center gap-2"><Upload className="w-4 h-4" />CSV or TXT with peptide sequences.</p></div>
               )}
+              <p className="text-sm text-muted-foreground">
+                Up to {MAX_ANALYZE_PEPTIDES} query peptides per job, each scored against the full
+                background set and shown separately on the results page. Use the command-line tool
+                for larger lists.
+              </p>
             </div>
 
             <div className="grid md:grid-cols-2 gap-6">
               <div className="space-y-2">
-                <Label>Species</Label>
+                <Label>System</Label>
                 <Select value={species} onValueChange={(v) => setSpecies(v as Species)}>
                   <SelectTrigger className="glass"><SelectValue /></SelectTrigger>
                   <SelectContent>{NON_HUMAN_SPECIES.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2">
-                <Label>Allele</Label>
-                <Select value={selectedAllele} onValueChange={setSelectedAllele} disabled={isLoadingAlleles || filteredAlleles.length === 0}>
-                  <SelectTrigger className="glass"><SelectValue placeholder={isLoadingAlleles ? "Loading alleles..." : filteredAlleles.length ? "Select allele" : "No alleles found"} /></SelectTrigger>
-                  <SelectContent>{filteredAlleles.map((allele) => <SelectItem key={allele} value={allele}>{allele}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="grid md:grid-cols-2 gap-6">
               <div className="space-y-2">
                 <Label>MHC class</Label>
                 <Select value={mhcClass} onValueChange={(v) => setMhcClass(v as MhcClass)}>
@@ -157,6 +178,16 @@ export default function SpeciesAnalysis() {
                       <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>
                     ))}
                   </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <Label>Allele</Label>
+                <Select value={selectedAllele} onValueChange={setSelectedAllele} disabled={isLoadingAlleles || filteredAlleles.length === 0}>
+                  <SelectTrigger className="glass"><SelectValue placeholder={isLoadingAlleles ? "Loading alleles..." : filteredAlleles.length ? "Select allele" : "No alleles found"} /></SelectTrigger>
+                  <SelectContent>{filteredAlleles.map((allele) => <SelectItem key={allele} value={allele}>{allele}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               <div className="space-y-2">
@@ -182,7 +213,7 @@ export default function SpeciesAnalysis() {
 
             <Button type="submit" className="w-full" size="lg" disabled={isSubmitting}>
               {isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              Start species analysis
+              Start systems analysis
             </Button>
           </form>
         </Card>

@@ -5,49 +5,29 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { ArrowLeft, Download, Loader2, AlertCircle, Info } from "lucide-react";
-import { API_BASE_URL } from "@/lib/api";
+import { API_BASE_URL, waitForJobComplete } from "@/lib/api";
 import { Header, PageShell } from "./shared";
 
 const DISPLAY_ROWS = 50;
 
+// Rows per query peptide in the CSV export. Each query contributes its own top
+// hits, so a multi-peptide job exports this many rows per peptide, not in total.
+const EXPORT_ROWS_PER_QUERY = 1000;
+
 const DEFAULT_BINDING_TOOLS = [
   "NetMHCpan-EL",
   "BigMHC-EL",
-  "MHCflurryEL",
-  "MixMHCpred",
-  "NetMHCpan",
-  "NetMHC",
+  "MixMHCpred-EL",
+  "MHCflurry-EL",
+  "MHCflurry-PS",
+  "MHCflurry-BA",
+  "NetMHCpan-BA",
+  "NetMHC-BA",
+  "NetMHCIIpan-EL",
+  "NetMHCIIpan-BA",
 ];
 
 const DEFAULT_IMMUNOGENICITY_TOOLS = [
-  "DeepImmuno",
-  "PRIME",
-  "BigMHC-IM",
-];
-
-const CROSSDOME_COLUMNS = [
-  "rank",
-  "query",
-  "subject",
-  "gene_donor",
-  "relatedness_score",
-  "rds_mu",
-  "rds_sigma",
-  "rds_cutoff_p005",
-  "rds_cutoff_p001",
-  "zscore",
-  "pvalue",
-  "pvalue_adj",
-  "significant",
-  "num_positive",
-  "num_mismatch",
-  "peptide_length",
-  "resource",
-  "NetMHCpan-EL",
-  "BigMHC-EL",
-  "MHCflurryEL",
-  "MixMHCpred",
-  "NetMHCpan",
   "DeepImmuno",
   "PRIME",
   "BigMHC-IM",
@@ -71,21 +51,36 @@ interface ResultRow {
   peptide_length: number | null;
   resource: string | null;
   gene_donor?: string | null;
+  n_source_genes?: number | null;
   [key: string]: unknown;
 }
 
 interface PredictionPlotMeta {
   binding_tool: string;
-  immunogenicity_tool: string;
+  // null on a binding-only plot, i.e. a class II job, where no immunogenicity
+  // model applies to the allele.
+  immunogenicity_tool: string | null;
   filename?: string;
   url?: string;
 }
 
-interface OutputsMeta {
+interface FigureSet {
   expression_heatmap?: string;
   prediction_plots?: Record<string, PredictionPlotMeta>;
   binding_tools?: string[];
   immunogenicity_tools?: string[];
+}
+
+interface OutputsMeta extends FigureSet {
+  // One figure set per query peptide. Jobs created before this existed carry a
+  // single flat set on OutputsMeta itself.
+  per_query?: Record<string, FigureSet>;
+}
+
+interface QueryMeta {
+  query: string;
+  start: number;
+  n_rows: number;
 }
 
 interface AnalysisMetadata {
@@ -95,6 +90,7 @@ interface AnalysisMetadata {
   MHC_class?: string;
   allele?: string;
   outputs?: OutputsMeta;
+  queries?: QueryMeta[];
   runtime_seconds?: number;
   skipped_invalid_peptides_count?: number;
   weighted?: boolean;
@@ -120,10 +116,24 @@ function fmtRuntime(seconds: unknown) {
   return `${minutes}m ${remainder}s`;
 }
 
-function absoluteUrl(url?: string) {
-  if (!url) return "";
-  if (url.startsWith("http")) return url;
-  return `${API_BASE_URL}${url}`;
+/**
+ * Resolve a figure reference to something an <img> can load.
+ *
+ * The backend in this repo rewrites figure filenames into /api/v1/... paths
+ * before sending them, but an asynchronous deployment may return the bare
+ * filename, which would otherwise resolve against the site root and fetch the
+ * SPA shell instead of an image. Rebuilding the path here covers both.
+ *
+ * /outputs/<filename> is the right target either way: it is a stable path that
+ * redirects to a freshly signed object when the figures live in object
+ * storage, where a pre-signed URL carried in the payload would expire.
+ */
+function outputUrl(jobId: string | undefined, ref?: string) {
+  if (!ref) return "";
+  if (ref.startsWith("http")) return ref;
+  if (ref.startsWith("/")) return `${API_BASE_URL}${ref}`;
+  if (!jobId) return "";
+  return `${API_BASE_URL}/api/v1/job/${jobId}/outputs/${encodeURIComponent(ref)}`;
 }
 
 export default function Results() {
@@ -133,9 +143,14 @@ export default function Results() {
 
   const [results, setResults] = useState<ResultRow[]>([]);
   const [totalRows, setTotalRows] = useState(0);
+  const [queryRows, setQueryRows] = useState(0);
+  const [queries, setQueries] = useState<QueryMeta[]>([]);
+  const [selectedQuery, setSelectedQuery] = useState("");
   const [outputs, setOutputs] = useState<OutputsMeta>({});
   const [metadata, setMetadata] = useState<AnalysisMetadata>({});
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingRows, setIsLoadingRows] = useState(false);
+  const [jobState, setJobState] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [bindingTool, setBindingTool] = useState(DEFAULT_BINDING_TOOLS[0]);
   const [immunogenicityTool, setImmunogenicityTool] = useState(DEFAULT_IMMUNOGENICITY_TOOLS[0]);
@@ -147,9 +162,20 @@ export default function Results() {
       return;
     }
 
-    const fetchResults = async () => {
+    const controller = new AbortController();
+
+    const fetchMetadata = async () => {
       try {
-        const analysisResponse = await fetch(`${API_BASE_URL}/api/v1/job/${jobId}/results`);
+        // An asynchronous deployment returns from /results before the figures
+        // are written, so the job has to be known finished first. Against the
+        // synchronous backend in this repo there is no status endpoint and this
+        // resolves immediately -- the /results call below is itself the wait.
+        await waitForJobComplete(jobId, { signal: controller.signal, onProgress: setJobState });
+
+        const analysisResponse = await fetch(
+          `${API_BASE_URL}/api/v1/job/${jobId}/results`,
+          { signal: controller.signal }
+        );
         const analysisData = await analysisResponse.json();
 
         if (!analysisResponse.ok || analysisData.status !== "ok") {
@@ -158,20 +184,54 @@ export default function Results() {
 
         const responseMetadata: AnalysisMetadata = analysisData.metadata || {};
         const responseOutputs: OutputsMeta = analysisData.outputs || responseMetadata.outputs || {};
+        const responseQueries = responseMetadata.queries || [];
 
         setTotalRows(analysisData.total_rows || 0);
         setMetadata(responseMetadata);
         setOutputs(responseOutputs);
+        setQueries(responseQueries);
+        // Compare mode has one global ranking and sends no query index; an
+        // empty selection then means "every row", which is what it wants.
+        setSelectedQuery(responseQueries[0]?.query ?? "");
 
-        if (responseOutputs.binding_tools?.length) {
-          setBindingTool(responseOutputs.binding_tools[0]);
+        // An empty list means the backend found no tool of that kind with data
+        // for this allele -- class II has no immunogenicity model -- so the
+        // selection is cleared rather than left on a class I default that no
+        // plot was generated for. Only a missing field falls back.
+        if (responseOutputs.binding_tools) {
+          setBindingTool(responseOutputs.binding_tools[0] ?? "");
         }
-        if (responseOutputs.immunogenicity_tools?.length) {
-          setImmunogenicityTool(responseOutputs.immunogenicity_tools[0]);
+        if (responseOutputs.immunogenicity_tools) {
+          setImmunogenicityTool(responseOutputs.immunogenicity_tools[0] ?? "");
         }
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        console.error("Error fetching results:", err);
+        const message = err instanceof Error ? err.message : "Error loading results";
+        setError(message);
+        toast.error(message);
+      } finally {
+        if (!controller.signal.aborted) setIsLoading(false);
+      }
+    };
+
+    fetchMetadata();
+    return () => controller.abort();
+  }, [jobId]);
+
+  // Row window for the selected query. start/end are relative to that query,
+  // so each peptide shows its own top rows instead of a slice of the first one.
+  useEffect(() => {
+    if (!jobId || isLoading || error) return;
+
+    const fetchRows = async () => {
+      setIsLoadingRows(true);
+      try {
+        const params = new URLSearchParams({ start: "0", end: String(DISPLAY_ROWS) });
+        if (selectedQuery) params.set("query", selectedQuery);
 
         const resultsResponse = await fetch(
-          `${API_BASE_URL}/api/v1/job/${jobId}/results-chunked?start=0&end=${DISPLAY_ROWS}`
+          `${API_BASE_URL}/api/v1/job/${jobId}/results-chunked?${params.toString()}`
         );
         const resultsData = await resultsResponse.json();
 
@@ -180,86 +240,63 @@ export default function Results() {
         }
 
         setResults(resultsData.rows || []);
+        setQueryRows(resultsData.lastRow || 0);
       } catch (err) {
-        console.error("Error fetching results:", err);
-        const message = err instanceof Error ? err.message : "Error loading results";
-        setError(message);
-        toast.error(message);
+        console.error("Error fetching rows:", err);
+        toast.error(err instanceof Error ? err.message : "Error loading results");
       } finally {
-        setIsLoading(false);
+        setIsLoadingRows(false);
       }
     };
 
-    fetchResults();
-  }, [jobId]);
+    fetchRows();
+  }, [jobId, selectedQuery, isLoading, error]);
 
   const speciesValue = (metadata.specie || metadata.species || "").toLowerCase();
   const isCompareMode = metadata.mode === "compare";
   const isHumanAnalysis = !isCompareMode && speciesValue === "human";
 
-  const bindingTools = outputs.binding_tools?.length
-    ? outputs.binding_tools
-    : DEFAULT_BINDING_TOOLS;
+  const figures: FigureSet = useMemo(() => {
+    if (outputs.per_query) return outputs.per_query[selectedQuery] ?? {};
+    // Jobs created before per-query figures stored one flat set, generated from
+    // the first query only. Showing it for any other query would mislabel it.
+    const isFirstQuery = !selectedQuery || selectedQuery === queries[0]?.query;
+    return isFirstQuery ? outputs : {};
+  }, [outputs, selectedQuery, queries]);
 
-  const immunogenicityTools = outputs.immunogenicity_tools?.length
-    ? outputs.immunogenicity_tools
-    : DEFAULT_IMMUNOGENICITY_TOOLS;
+  const bindingTools = outputs.binding_tools ?? DEFAULT_BINDING_TOOLS;
+  const immunogenicityTools = outputs.immunogenicity_tools ?? DEFAULT_IMMUNOGENICITY_TOOLS;
+
+  // Predictions are no longer human-only: the prediction tables carry mouse,
+  // rat, dog, swine and bovine alleles too, so the table columns follow whether
+  // this job actually has values rather than which species it ran on.
+  const hasPredictions = !isCompareMode && bindingTools.length > 0;
 
   const selectedPredictionPlot = useMemo(() => {
+    // Matches the backend key, whose second half is empty for a binding-only
+    // plot (class II, where no immunogenicity model applies).
     const key = `${bindingTool}__${immunogenicityTool}`;
-    return outputs.prediction_plots?.[key];
-  }, [outputs, bindingTool, immunogenicityTool]);
+    return figures.prediction_plots?.[key];
+  }, [figures, bindingTool, immunogenicityTool]);
 
-  const handleDownloadCSV = async () => {
+  // The backend builds the CSV with every column and streams it. The old
+  // client-side export took the first 1000 rows of the whole result, which was
+  // entirely the first peptide; the limit is now per query peptide.
+  const handleDownloadCSV = (query?: string) => {
     if (!jobId || totalRows === 0) return;
-
-    try {
-      const response = await fetch(
-        `${API_BASE_URL}/api/v1/job/${jobId}/results-chunked?start=0&end=1000`
-      );
-      const data = await response.json();
-      const rows = data.rows || [];
-
-      if (rows.length === 0) {
-        toast.error("No rows to export");
-        return;
-      }
-
-      const headers = CROSSDOME_COLUMNS.filter((column) =>
-        rows.some((row: Record<string, unknown>) => column in row)
-      );
-
-      const csv = [
-        headers.join(","),
-        ...rows.map((row: Record<string, unknown>) =>
-          headers
-            .map((header) => {
-              const value = row[header] ?? "";
-              return `"${String(value).replace(/"/g, '""')}"`;
-            })
-            .join(",")
-        ),
-      ].join("\n");
-
-      const blob = new Blob([csv], {
-        type: "text/csv;charset=utf-8;",
-      });
-
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-
-      a.href = url;
-      a.download = `crossdome-top-1000-${jobId}.csv`;
-      a.click();
-
-      URL.revokeObjectURL(url);
-
-      toast.success("CrossDome results exported successfully");
-    } catch (err) {
-      console.error("CSV export failed:", err);
-      toast.error("CSV export failed");
-    }
+    const params = new URLSearchParams({ limit: String(EXPORT_ROWS_PER_QUERY) });
+    if (query) params.set("query", query);
+    window.location.href = `${API_BASE_URL}/api/v1/job/${jobId}/download.csv?${params.toString()}`;
   };
+
+  const exportHint = `Top ${EXPORT_ROWS_PER_QUERY.toLocaleString()} rows per query peptide`;
+
+  // `url` is what this repo's backend sends; `filename` is the raw value an
+  // asynchronous deployment returns instead.
+  const selectedPredictionPlotUrl = outputUrl(
+    jobId,
+    selectedPredictionPlot?.url ?? selectedPredictionPlot?.filename
+  );
 
   if (isLoading) {
     return (
@@ -270,6 +307,13 @@ export default function Results() {
             <Loader2 className="w-12 h-12 animate-spin text-primary mx-auto" />
             <h2 className="text-2xl font-semibold">Processing analysis</h2>
             <p className="text-muted-foreground">Please wait while CrossDome analyzes your data.</p>
+            {jobState === "pending" || jobState === "queued" ? (
+              <p className="text-sm text-muted-foreground">Queued on the server.</p>
+            ) : jobState ? (
+              <p className="text-sm text-muted-foreground">
+                Running on the server. This can take a few minutes for a remote job.
+              </p>
+            ) : null}
           </Card>
         </main>
       </PageShell>
@@ -301,12 +345,36 @@ export default function Results() {
         right={
           <div className="flex flex-wrap items-center justify-end gap-4">
             <Badge variant="outline" className="glass border-primary/30 text-primary">
-              Showing top {Math.min(DISPLAY_ROWS, totalRows)} of {totalRows} results
+              {isLoadingRows ? (
+                "Loading rows..."
+              ) : (
+                <>
+                  Showing top {Math.min(DISPLAY_ROWS, queryRows).toLocaleString()} of{" "}
+                  {queryRows.toLocaleString()}
+                  {selectedQuery ? ` for ${selectedQuery}` : " results"}
+                </>
+              )}
             </Badge>
-            <Button onClick={handleDownloadCSV} variant="outline" className="glass hover:bg-white/10">
+            <Button
+              onClick={() => handleDownloadCSV()}
+              variant="outline"
+              className="glass hover:bg-white/10"
+              title={exportHint}
+            >
               <Download className="w-4 h-4 mr-2" />
-              Export CSV
+              {queries.length > 1 ? `Export all ${queries.length} peptides` : "Export CSV"}
             </Button>
+            {queries.length > 1 && (
+              <Button
+                onClick={() => handleDownloadCSV(selectedQuery)}
+                variant="outline"
+                className="glass hover:bg-white/10"
+                title={exportHint}
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Export {selectedQuery}
+              </Button>
+            )}
             <Button variant="ghost" onClick={() => setLocation("/")} className="glass hover:bg-white/10">
               <ArrowLeft className="w-4 h-4 mr-2" />
               New analysis
@@ -335,34 +403,65 @@ export default function Results() {
               ) : null}
             </div>
 
+            {queries.length > 1 && (
+              <Card className="glass border-white/10 p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                <div>
+                  <h2 className="text-lg font-semibold">Query peptide</h2>
+                  <p className="text-sm text-muted-foreground">
+                    This job scored {queries.length} query peptides. Each one has its own ranking,
+                    figures, and {totalRows.toLocaleString()} total rows across all peptides.
+                  </p>
+                </div>
+                <select
+                  value={selectedQuery}
+                  onChange={(e) => setSelectedQuery(e.target.value)}
+                  className="rounded-md bg-background border border-white/20 px-3 py-2 font-mono"
+                >
+                  {queries.map((item) => (
+                    <option key={item.query} value={item.query}>
+                      {item.query} ({item.n_rows.toLocaleString()} rows)
+                    </option>
+                  ))}
+                </select>
+              </Card>
+            )}
+
             {!isHumanAnalysis && !isCompareMode && (
               <Card className="glass border-white/10 p-4 flex gap-3 items-start">
                 <Info className="w-5 h-5 text-primary mt-0.5" />
                 <div>
-                  <h2 className="text-lg font-semibold">Species analysis table</h2>
+                  <h2 className="text-lg font-semibold">Systems analysis table</h2>
                   <p className="text-muted-foreground">
-                    Human expression and prediction plots are not generated for other-species analyses.
+                    Human gene expression and tissue specificity are not generated for
+                    other-systems analyses. Binding and immunogenicity predictions are shown
+                    wherever this allele has them.
                   </p>
                 </div>
               </Card>
             )}
 
-            {isHumanAnalysis && outputs.expression_heatmap && (
+            {isHumanAnalysis && figures.expression_heatmap && (
               <Card className="glass border-white/10 p-4">
-                <h2 className="text-xl font-semibold mb-4">Peptide expression and tissue specificity</h2>
+                <h2 className="text-xl font-semibold mb-4">
+                  Peptide expression and tissue specificity
+                  {selectedQuery && <span className="font-mono text-primary"> · {selectedQuery}</span>}
+                </h2>
                 <img
-                  src={absoluteUrl(outputs.expression_heatmap)}
+                  src={outputUrl(jobId, figures.expression_heatmap)}
                   alt="Peptide expression and tissue specificity"
                   className="w-full rounded-xl border border-white/10 bg-white"
                 />
               </Card>
             )}
 
-            {isHumanAnalysis && outputs.prediction_plots && Object.keys(outputs.prediction_plots).length > 0 && (
+            {!isCompareMode && figures.prediction_plots && Object.keys(figures.prediction_plots).length > 0 && (
               <Card className="glass border-white/10 p-4">
                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
                   <div>
-                    <h2 className="text-xl font-semibold">Binding and immunogenicity predictions</h2>
+                    <h2 className="text-xl font-semibold">
+                      Binding and immunogenicity predictions
+                      {selectedQuery && <span className="font-mono text-primary"> · {selectedQuery}</span>}
+                    </h2>
                     <p className="text-sm text-muted-foreground mt-1">
                       Select any prediction tools available for this allele.
                     </p>
@@ -382,24 +481,26 @@ export default function Results() {
                       </select>
                     </label>
 
-                    <label className="text-sm">
-                      Immunogenicity tool
-                      <select
-                        value={immunogenicityTool}
-                        onChange={(e) => setImmunogenicityTool(e.target.value)}
-                        className="ml-2 rounded-md bg-background border border-white/20 px-3 py-2"
-                      >
-                        {immunogenicityTools.map((tool) => (
-                          <option key={tool} value={tool}>{tool}</option>
-                        ))}
-                      </select>
-                    </label>
+                    {immunogenicityTools.length > 0 && (
+                      <label className="text-sm">
+                        Immunogenicity tool
+                        <select
+                          value={immunogenicityTool}
+                          onChange={(e) => setImmunogenicityTool(e.target.value)}
+                          className="ml-2 rounded-md bg-background border border-white/20 px-3 py-2"
+                        >
+                          {immunogenicityTools.map((tool) => (
+                            <option key={tool} value={tool}>{tool}</option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
                   </div>
                 </div>
 
-                {selectedPredictionPlot?.url ? (
+                {selectedPredictionPlotUrl ? (
                   <img
-                    src={absoluteUrl(selectedPredictionPlot.url)}
+                    src={selectedPredictionPlotUrl}
                     alt={`${bindingTool} and ${immunogenicityTool} prediction plot`}
                     className="w-full rounded-xl border border-white/10 bg-white"
                   />
@@ -411,7 +512,12 @@ export default function Results() {
               </Card>
             )}
 
-            <Card className="glass border-white/10 overflow-hidden">
+            <Card className="glass border-white/10 overflow-hidden relative">
+              {isLoadingRows && (
+                <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60">
+                  <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                </div>
+              )}
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead>
@@ -429,10 +535,12 @@ export default function Results() {
                       <th className="px-4 py-3 text-right text-sm font-semibold">P-value</th>
                       <th className="px-4 py-3 text-right text-sm font-semibold">Adj. P-value</th>
 
-                      {isHumanAnalysis && (
+                      {hasPredictions && (
                         <>
                           <th className="px-4 py-3 text-right text-sm font-semibold">{bindingTool}</th>
-                          <th className="px-4 py-3 text-right text-sm font-semibold">{immunogenicityTool}</th>
+                          {immunogenicityTool && (
+                            <th className="px-4 py-3 text-right text-sm font-semibold">{immunogenicityTool}</th>
+                          )}
                         </>
                       )}
 
@@ -453,7 +561,14 @@ export default function Results() {
                         <td className="px-4 py-3 text-sm font-mono text-primary">{row.query}</td>
                         <td className="px-4 py-3 text-sm font-mono text-accent">{row.subject}</td>
                         {isHumanAnalysis && (
-                          <td className="px-4 py-3 text-sm">{row.gene_donor || "N/A"}</td>
+                          <td className="px-4 py-3 text-sm">
+                            {/* A peptide can be presented from several genes; the full
+                                list is in the CSV and on hover, so the cell cannot
+                                stretch the table for histone or MAGE-style families. */}
+                            <div className="max-w-[14rem] truncate" title={row.gene_donor || undefined}>
+                              {row.gene_donor || "N/A"}
+                            </div>
+                          </td>
                         )}
                         <td className="px-4 py-3 text-sm text-right font-mono">{fmtNumber(row.relatedness_score, 3)}</td>
                         <td className="px-4 py-3 text-sm text-right font-mono">{fmtNumber(row.rds_mu, 3)}</td>
@@ -462,14 +577,16 @@ export default function Results() {
                         <td className="px-4 py-3 text-sm text-right font-mono">{fmtP(row.pvalue)}</td>
                         <td className="px-4 py-3 text-sm text-right font-mono">{fmtP(row.pvalue_adj)}</td>
 
-                        {isHumanAnalysis && (
+                        {hasPredictions && (
                           <>
                             <td className="px-4 py-3 text-sm text-right font-mono">
                               {fmtNumber(row[bindingTool], 3)}
                             </td>
-                            <td className="px-4 py-3 text-sm text-right font-mono">
-                              {fmtNumber(row[immunogenicityTool], 3)}
-                            </td>
+                            {immunogenicityTool && (
+                              <td className="px-4 py-3 text-sm text-right font-mono">
+                                {fmtNumber(row[immunogenicityTool], 3)}
+                              </td>
+                            )}
                           </>
                         )}
 
@@ -484,6 +601,14 @@ export default function Results() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+
+              <div className="border-t border-white/10 px-4 py-3 text-sm text-muted-foreground">
+                Table shows the top {DISPLAY_ROWS} rows
+                {selectedQuery ? <> for <span className="font-mono">{selectedQuery}</span></> : null}. CSV
+                export includes the top {EXPORT_ROWS_PER_QUERY.toLocaleString()} rows per query peptide
+                {queries.length > 1 ? ` (${queries.length} peptides)` : ""}. For a complete table, use the
+                command-line tool (<span className="font-mono">crossdome2.py analyze</span>).
               </div>
             </Card>
           </div>

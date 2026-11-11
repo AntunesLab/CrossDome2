@@ -8,7 +8,17 @@ import pandas as pd
 from scipy.stats import norm
 from statsmodels.stats.multitest import multipletests
 
-from .data_loader import load_annotation_nine_mer_index, load_scoring_data
+from .data_loader import (
+    NON_TISSUE_COLUMNS,
+    aggregate_peptide_annotation,
+    expand_eight_mer,
+    load_annotation_nine_mer_subset,
+    load_gene_breadth_rank,
+    load_gene_expression_breadth,
+    load_scoring_data,
+    merge_annotation_entries,
+    nine_mer_candidates,
+)
 from .models import XRBackground, XRResult
 from .stats import get_length_parameters
 from .visualization import BINDING_TOOLS, IMMUNOGENICITY_TOOLS
@@ -23,8 +33,9 @@ PREDICTION_PERCENTILE_COLUMNS = [
     "NetMHC_percentile",
     "NetMHCpan_percentile",
     "NetMHCpanEL_percentile",
+    "NetMHCIIpan_percentile",
+    "NetMHCIIpanEL_percentile",
     "MixMHCpred_percentile",
-    "MHCflurryEL_percentile",
     "PRIME_percentile",
     "DeepImmuno_percentile",
     "best_percentile",
@@ -117,11 +128,15 @@ def _find_column(df: pd.DataFrame, aliases: Iterable[str]) -> str | None:
 def _prediction_aliases() -> dict[str, list[str]]:
     return {
         "BigMHC-EL": ["BigMHC-EL", "BigMHC_EL", "bigmhc_el"],
-        "NetMHC": ["NetMHC", "netmhc"],
-        "NetMHCpan": ["NetMHCpan", "netmhcpan"],
+        "NetMHC-BA": ["NetMHC-BA", "NetMHC", "netmhc"],
+        "NetMHCpan-BA": ["NetMHCpan-BA", "NetMHCpan", "netmhcpan"],
         "NetMHCpan-EL": ["NetMHCpan-EL", "NetMHCpan_EL", "netmhcpan_el"],
-        "MixMHCpred": ["MixMHCpred", "mixmhcpred"],
-        "MHCflurryEL": ["MHCflurryEL", "mhcflurryel", "mhcflurry_el"],
+        "MixMHCpred-EL": ["MixMHCpred-EL", "MixMHCpred", "mixmhcpred"],
+        "NetMHCIIpan-EL": ["NetMHCIIpan-EL", "NetMHCIIpan_EL", "netmhciipan_el"],
+        "NetMHCIIpan-BA": ["NetMHCIIpan-BA", "NetMHCIIpan", "netmhciipan_ba"],
+        "MHCflurry-EL": ["MHCflurry-EL", "mhcflurry_processing_score"],
+        "MHCflurry-BA": ["MHCflurry-BA", "mhcflurry_affinity"],
+        "MHCflurry-PS": ["MHCflurry-PS", "mhcflurry_presentation_score"],
         "BigMHC-IM": ["BigMHC-IM", "BigMHC_IM", "bigmhc_im"],
         "PRIME": ["PRIME", "prime"],
         "DeepImmuno": ["DeepImmuno", "deepimmuno", "deep_immuno"],
@@ -131,8 +146,9 @@ def _prediction_aliases() -> dict[str, list[str]]:
         "NetMHC_percentile": ["NetMHC_percentile"],
         "NetMHCpan_percentile": ["NetMHCpan_percentile"],
         "NetMHCpanEL_percentile": ["NetMHCpanEL_percentile", "NetMHCpan_EL_percentile"],
+        "NetMHCIIpan_percentile": ["NetMHCIIpan_percentile"],
+        "NetMHCIIpanEL_percentile": ["NetMHCIIpanEL_percentile", "NetMHCIIpan_EL_percentile"],
         "MixMHCpred_percentile": ["MixMHCpred_percentile"],
-        "MHCflurryEL_percentile": ["MHCflurryEL_percentile"],
         "PRIME_percentile": ["PRIME_percentile"],
         "DeepImmuno_percentile": ["DeepImmuno_percentile"],
         "best_percentile": ["best_percentile"],
@@ -140,16 +156,46 @@ def _prediction_aliases() -> dict[str, list[str]]:
     }
 
 
+def _read_predictions_for_allele(path: Path, allele: str) -> pd.DataFrame:
+    """Load one prediction table's rows for a single allele.
+
+    The tables hold 4.8M rows between them, so reading one whole on every query
+    -- including the queries whose allele it cannot contain -- would cost more
+    than the join it feeds. Push the allele filter down to the Parquet reader
+    instead, which skips the row groups that cannot match; each table is written
+    sorted by allele with one row group per allele for exactly this.
+    """
+    criteria = [("hla_allele", "==", str(allele).strip())]
+    try:
+        return pd.read_parquet(path, filters=criteria)
+    except (TypeError, ValueError, NotImplementedError):
+        # Older pyarrow, or an engine without predicate pushdown: fall back to
+        # reading the file and filtering in pandas.
+        frame = pd.read_parquet(path)
+        if "hla_allele" not in frame.columns:
+            return frame
+        return frame[frame["hla_allele"].astype(str).str.strip() == str(allele).strip()]
+
+
 def _merge_predictions(df: pd.DataFrame, bio_dir: Path, allele: str) -> pd.DataFrame:
     """
-    Merge all prediction tools present in predictions.parquet.
+    Merge all prediction tools present in the prediction tables.
 
-    The user's current table contains:
-      BigMHC-EL, BigMHC-IM, NetMHC, NetMHCpan, NetMHCpan-EL,
-      MixMHCpred, MHCflurryEL, PRIME, DeepImmuno, TLImm,
-      plus prediction percentile columns.
+    Every ``predictions*.parquet`` in the database directory is one part of one
+    table, all keyed on (peptide_sequence, hla_allele):
+
+      class I   -- BigMHC-EL, BigMHC-IM, NetMHC, NetMHCpan, NetMHCpan-EL,
+                   MixMHCpred-EL, MHCflurry-BA, MHCflurry-EL, MHCflurry-PS,
+                   PRIME, DeepImmuno, TLImm, plus percentile columns.
+                   2.0M rows over contiguous allele ranges, so no single file
+                   crosses GitHub's 100 MB limit (``run_predictions.py merge``).
+      class II  -- NetMHCIIpan-EL, NetMHCIIpan-BA and their percentiles.
+
+    An allele lives in exactly one part, so reading each part filtered by the
+    requested allele returns rows from one of them and nothing from the others;
+    ``_available_tools`` then drops the columns the matched part does not carry
+    as all-NaN. Adding a part needs no code change here.
     """
-    path = bio_dir / "predictions.parquet"
     display_tools = BINDING_TOOLS + IMMUNOGENICITY_TOOLS
     aliases = _prediction_aliases()
 
@@ -158,10 +204,15 @@ def _merge_predictions(df: pd.DataFrame, bio_dir: Path, allele: str) -> pd.DataF
         if col not in out.columns:
             out[col] = np.nan
 
-    if not path.exists():
+    frames = [
+        _read_predictions_for_allele(path, allele)
+        for path in sorted(bio_dir.glob("predictions*.parquet"))
+    ]
+    frames = [f for f in frames if not f.empty]
+    if not frames:
         return out
 
-    pred = pd.read_parquet(path)
+    pred = frames[0] if len(frames) == 1 else pd.concat(frames, ignore_index=True)
     peptide_col = _find_column(
         pred,
         ["peptide_sequence", "peptide", "subject", "epitope", "sequence"],
@@ -197,6 +248,24 @@ def _merge_predictions(df: pd.DataFrame, bio_dir: Path, allele: str) -> pd.DataF
     return out
 
 
+def _read_annotation_for_subjects(path: Path, subjects: set) -> pd.DataFrame:
+    """Load only the annotation rows whose peptide was actually scored.
+
+    peptide_annotation.parquet is a 12.3M-row sliding-window digest of the
+    proteome, and the caller keeps only the rows matching the scored subjects,
+    so reading it whole cost ~2.2 GB resident to then discard nearly all of it.
+    Pushing the filter into the Parquet reader materializes just the rows that
+    survive. Mirrors _read_predictions_for_allele, including its fallback.
+    """
+    keys = sorted({str(s) for s in subjects if isinstance(s, str) and s})
+    try:
+        return pd.read_parquet(path, filters=[("peptide_sequence", "in", keys)])
+    except (TypeError, ValueError, NotImplementedError, KeyError):
+        # Older pyarrow, or an engine without predicate pushdown: read it whole
+        # and leave the filtering to the caller, as it was done before.
+        return pd.read_parquet(path)
+
+
 def _add_expression(df: pd.DataFrame, bio_dir: Path):
     annot_path = bio_dir / "peptide_annotation.parquet"
     hpa_path = bio_dir / "hpa_database.parquet"
@@ -204,7 +273,7 @@ def _add_expression(df: pd.DataFrame, bio_dir: Path):
     if not (annot_path.exists() and hpa_path.exists()):
         return df, pd.DataFrame()
 
-    annot = pd.read_parquet(annot_path)
+    annot = _read_annotation_for_subjects(annot_path, set(df["subject"]))
     hpa = pd.read_parquet(hpa_path)
 
     required_annot = {"peptide_sequence", "ensembl_id"}
@@ -212,10 +281,16 @@ def _add_expression(df: pd.DataFrame, bio_dir: Path):
         return df, pd.DataFrame()
 
     # peptide_annotation.parquet has one row per originating gene/paralog for a
-    # given peptide (e.g. one peptide can map to multiple MAGE-A paralogs), so
-    # merging without deduping fans a single scored row into several
-    # duplicate-looking rows that share the same rank/score.
-    annot = annot.drop_duplicates(subset=["peptide_sequence"], keep="first")
+    # given peptide (e.g. EVDPAGHSY maps to MAGEA8, MAGEA9B and MAGEA9), so
+    # merging without collapsing fans a single scored row into several
+    # duplicate-looking rows that share the same rank/score. Collapse it to one
+    # row per peptide instead, keeping every source gene in gene_donor and the
+    # most broadly expressed one in ensembl_id for the expression figure. Only
+    # the peptides actually scored here need collapsing, which keeps it cheap.
+    annot = annot.loc[annot["peptide_sequence"].isin(set(df["subject"]))]
+    annot = aggregate_peptide_annotation(
+        annot, load_gene_expression_breadth(str(bio_dir.resolve()))
+    )
     hpa = hpa.drop_duplicates(subset=["ensembl_id"], keep="first")
 
     merged = df.merge(
@@ -227,49 +302,78 @@ def _add_expression(df: pd.DataFrame, bio_dir: Path):
     merged["annotation_source"] = np.where(merged["peptide_sequence"].notna(), "exact", None)
 
     # peptide_annotation.parquet is overwhelmingly a 9-mer sliding-window
-    # digest of the proteome, so longer peptides (e.g. Class II 11-25mers)
-    # routinely miss the exact-match above even when their source gene is
-    # fully annotated. Recover these by checking whether any 9-mer core
-    # window of the peptide hits the 9-mer digest -- this recovers ~95% of
-    # otherwise-missing annotations (sampled check) without materializing a
-    # full per-length digest.
-    unmatched = merged["peptide_sequence"].isna() & (merged["subject"].str.len() >= 9)
+    # digest of the proteome, so peptides of any other length routinely miss
+    # the exact-match above even when their source gene is fully annotated.
+    # Two fallbacks recover them from that same 9-mer digest, with no
+    # per-length digest to materialize:
+    #   - 9 residues or more (e.g. Class II 11-25mers): does any 9-mer core
+    #     window of the peptide hit the digest? Recovers ~95% of the
+    #     otherwise-missing annotations.
+    #   - exactly 8 residues: too short for either step above, and 56% of the
+    #     human Class I gap. Re-extend by one residue on each side and test
+    #     the 40 candidate 9-mers (see expand_eight_mer). Recovers 97.9% of
+    #     unannotated 8-mers, taking human Class I from 14.5% to 6.6%
+    #     unannotated and human Class II from 4.9% to 4.0% (measured
+    #     2026-10-18 over the whole database).
+    # Both are inferences from a sub-window rather than an exact hit, which is
+    # what annotation_source records.
+    unmatched = merged["peptide_sequence"].isna() & (merged["subject"].str.len() >= 8)
     if unmatched.any():
-        nine_mer_index = load_annotation_nine_mer_index(str(bio_dir.resolve()))
+        # Only the cores of this job's own unmatched peptides are ever looked
+        # up, so the index is read for those keys instead of the whole digest.
+        nine_mer_index = load_annotation_nine_mer_subset(
+            str(bio_dir.resolve()),
+            frozenset(nine_mer_candidates(merged.loc[unmatched, "subject"])),
+        )
+        breadth_rank = load_gene_breadth_rank(str(bio_dir.resolve()))
         has_gene_donor_col = "gene_donor" in merged.columns
+        has_gene_count_col = "n_source_genes" in merged.columns
         if nine_mer_index:
-            # Row-by-row with early exit on the first hit: a fully vectorized
-            # version (score every offset for every peptide, then pick the
-            # first hit) was measured ~2x slower in practice, since most
-            # peptides hit on an early offset and most dict lookups here are
-            # wasted work once a vectorized pass commits to checking all of
-            # them.
-            for idx in merged.index[unmatched]:
-                seq = merged.at[idx, "subject"]
-                hit = None
-                for i in range(len(seq) - 8):
-                    hit = nine_mer_index.get(seq[i : i + 9])
-                    if hit is not None:
-                        break
+            # The 9-mer core scan goes offset by offset with an early exit on
+            # the first hit: a fully vectorized version (score every offset for
+            # every peptide, then pick the first hit) was measured ~2x slower
+            # in practice, since most peptides hit on an early offset and most
+            # dict lookups there are wasted work once a vectorized pass
+            # commits to checking all of them.
+            rows: list = []
+            hits: list[tuple] = []
+            sources: list[str] = []
+            for idx, seq in merged.loc[unmatched, "subject"].items():
+                if len(seq) == 8:
+                    entries = expand_eight_mer(seq, nine_mer_index)
+                    hit = (
+                        merge_annotation_entries(entries, breadth_rank)
+                        if entries
+                        else None
+                    )
+                else:
+                    hit = None
+                    for i in range(len(seq) - 8):
+                        hit = nine_mer_index.get(seq[i : i + 9])
+                        if hit is not None:
+                            break
                 if hit is not None:
-                    merged.at[idx, "ensembl_id"] = hit[0]
-                    if has_gene_donor_col:
-                        merged.at[idx, "gene_donor"] = hit[1]
-                    merged.at[idx, "annotation_source"] = "9mer_core"
+                    rows.append(idx)
+                    hits.append(hit)
+                    sources.append("8mer_flank" if len(seq) == 8 else "9mer_core")
+
+            # Assigned column-at-a-time rather than cell-by-cell: .at on an
+            # object column costs ~15us per write, which on a full-background
+            # job dominates the lookups it is storing.
+            if rows:
+                merged.loc[rows, "ensembl_id"] = [hit[0] for hit in hits]
+                if has_gene_donor_col:
+                    merged.loc[rows, "gene_donor"] = [hit[1] for hit in hits]
+                if has_gene_count_col:
+                    merged.loc[rows, "n_source_genes"] = [hit[2] for hit in hits]
+                merged.loc[rows, "annotation_source"] = sources
 
     # hpa also carries its own gene_donor column; dropping it here avoids a
     # merge-suffix collision (gene_donor_x/gene_donor_y) that would otherwise
     # silently erase the gene_donor column annot already provided.
     merged = merged.merge(hpa.drop(columns=["gene_donor"]), on="ensembl_id", how="left")
 
-    non_tissue = {
-        "ensembl_id",
-        "gene_donor",
-        "Group",
-        "spec_degree",
-        "tissues",
-    }
-    tissue_cols = [c for c in hpa.columns if c not in non_tissue]
+    tissue_cols = [c for c in hpa.columns if c not in NON_TISSUE_COLUMNS]
 
     expression = pd.DataFrame()
     if tissue_cols:

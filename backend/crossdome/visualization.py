@@ -9,10 +9,14 @@ from matplotlib.gridspec import GridSpec
 BINDING_TOOLS = [
     "NetMHCpan-EL",
     "BigMHC-EL",
-    "MHCflurryEL",
-    "MixMHCpred",
-    "NetMHCpan",
-    "NetMHC",
+    "MixMHCpred-EL",
+    "MHCflurry-EL",
+    "MHCflurry-PS",
+    "MHCflurry-BA",
+    "NetMHCpan-BA",
+    "NetMHC-BA",
+    "NetMHCIIpan-EL",
+    "NetMHCIIpan-BA",
 ]
 
 IMMUNOGENICITY_TOOLS = [
@@ -21,6 +25,55 @@ IMMUNOGENICITY_TOOLS = [
     "BigMHC-IM",
     "TLImm",
 ]
+
+# Unit/scale of each tool's score, used to annotate plot axes. Tool names carry
+# an explicit category suffix (-BA affinity, -EL eluted ligand, -PS presentation)
+# so the dropdown says what each one predicts. NetMHC-BA,
+# NetMHCpan-BA and MHCflurry-BA report binding affinity in nM (lower is stronger);
+# the eluted ligand (EL) and immunogenicity tools report bounded scores;
+# MixMHCpred reports a log-likelihood score that can be negative.
+#
+# MHCflurry 2.0 has no standalone eluted-ligand model the way NetMHCpan does.
+# It ships three quantities instead, all kept here: BA is the affinity model,
+# EL is the MS-trained antigen-processing score, and PS is the presentation
+# score combining the two. PS is the closest analogue to another tool's EL.
+TOOL_UNITS = {
+    "NetMHCpan-EL": "EL score, 0-1",
+    "BigMHC-EL": "EL score, 0-1",
+    "MHCflurry-EL": "processing score, 0-1",
+    "MHCflurry-BA": "nM, lower = stronger",
+    "MHCflurry-PS": "presentation score, 0-1",
+    "MixMHCpred-EL": "log score",
+    "NetMHCpan-BA": "nM, lower = stronger",
+    "NetMHC-BA": "nM, lower = stronger",
+    "NetMHCIIpan-EL": "EL score, 0-1",
+    "NetMHCIIpan-BA": "nM, lower = stronger",
+    "DeepImmuno": "score, 0-1",
+    "PRIME": "score, 0-1",
+    "BigMHC-IM": "score, 0-1",
+    "TLImm": "score, 0-1",
+}
+
+
+def tool_axis_label(tool: str) -> str:
+    """Tool name with its unit/scale, e.g. ``NetMHC (nM, lower = stronger)``."""
+    unit = TOOL_UNITS.get(tool)
+    return f"{tool} ({unit})" if unit else str(tool)
+
+
+# Affinities (nM) span four orders of magnitude, so they are drawn on a log y
+# axis. Every other tool reports a bounded score and stays linear.
+LOG_SCALE_TOOLS = {"NetMHC-BA", "NetMHCpan-BA", "MHCflurry-BA", "NetMHCIIpan-BA"}
+
+
+def _panel_series(data: pd.DataFrame, tool: str) -> tuple[pd.Series, str, bool]:
+    """Pick the column, axis label and y scale for one panel."""
+    if tool in data.columns:
+        values = pd.to_numeric(data[tool], errors="coerce")
+    else:
+        values = pd.Series(np.nan, index=data.index)
+
+    return values, tool_axis_label(tool), tool in LOG_SCALE_TOOLS
 
 
 def _numeric_expression_matrix(expression_matrix: pd.DataFrame, top_n: int = 15) -> pd.DataFrame:
@@ -126,13 +179,19 @@ def generate_expression_heatmap(
 def plot_prediction_tools(
     result_df: pd.DataFrame,
     binding_tool: str,
-    immunogenicity_tool: str,
+    immunogenicity_tool: str | None = None,
     top_n: int = 30,
 ):
-    """Create the two-panel prediction plot used by the frontend."""
+    """Create the prediction plot used by the frontend.
+
+    Two panels, binding over immunogenicity. ``immunogenicity_tool=None`` draws
+    the binding panel alone, which is what class II queries get: every
+    immunogenicity model in the panel is class I only, so pairing would mean no
+    figure at all for an allele whose binding predictions do exist.
+    """
     if binding_tool not in BINDING_TOOLS:
         raise ValueError(f"Unknown binding tool: {binding_tool}")
-    if immunogenicity_tool not in IMMUNOGENICITY_TOOLS:
+    if immunogenicity_tool is not None and immunogenicity_tool not in IMMUNOGENICITY_TOOLS:
         raise ValueError(f"Unknown immunogenicity tool: {immunogenicity_tool}")
 
     order_col = "rank" if "rank" in result_df.columns else "relatedness_score"
@@ -142,23 +201,27 @@ def plot_prediction_tools(
         raise ValueError("Result table must contain a 'subject' column.")
 
     x = np.arange(len(data))
-    fig, axes = plt.subplots(2, 1, figsize=(14, 8), sharex=True)
+    tools = [binding_tool] if immunogenicity_tool is None else [binding_tool, immunogenicity_tool]
+    fig, axes = plt.subplots(
+        len(tools), 1, figsize=(14, 4.5 * len(tools)), sharex=True, squeeze=False
+    )
+    axes = axes[:, 0]
 
-    panels = [
-        (axes[0], immunogenicity_tool),
-        (axes[1], binding_tool),
-    ]
+    # Panel order matches the frontend dropdowns: binding on top,
+    # immunogenicity below.
+    panels = list(zip(axes, tools))
 
     for ax, col in panels:
-        if col not in data.columns:
-            values = pd.Series(np.nan, index=data.index)
-        else:
-            values = pd.to_numeric(data[col], errors="coerce")
+        values, label, use_log = _panel_series(data, col)
 
         valid = values.notna()
         ax.scatter(x[valid.to_numpy()], values[valid].to_numpy())
-        ax.set_ylabel(col)
+        ax.set_ylabel(label)
         ax.grid(alpha=0.25)
+
+        # A log axis cannot show zero or negative values; keep those panels linear.
+        if use_log and valid.any() and values[valid].min() > 0:
+            ax.set_yscale("log")
 
         if not valid.any():
             ax.text(
@@ -170,9 +233,14 @@ def plot_prediction_tools(
                 va="center",
             )
 
-    axes[0].set_title(f"{immunogenicity_tool} and {binding_tool} predictions")
-    axes[1].set_xticks(x)
-    axes[1].set_xticklabels(data["subject"].astype(str), rotation=90)
-    axes[1].set_xlabel("Peptide")
+    title = (
+        f"{binding_tool} predictions"
+        if immunogenicity_tool is None
+        else f"{binding_tool} and {immunogenicity_tool} predictions"
+    )
+    axes[0].set_title(title)
+    axes[-1].set_xticks(x)
+    axes[-1].set_xticklabels(data["subject"].astype(str), rotation=90)
+    axes[-1].set_xlabel("Peptide")
     fig.tight_layout()
     return fig

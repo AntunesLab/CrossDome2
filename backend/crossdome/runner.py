@@ -29,6 +29,14 @@ from .visualization import (
 # command-line tool instead (see crossdome.vectorized).
 MAX_COMPARE_PAIRS = 50_000
 
+# Every query peptide is scored against the whole background set, so each one
+# adds its own full result table plus a figure set: roughly 43,000 rows and 16
+# PNGs per 9-mer against a class I allele. Ten is what a synchronous web job can
+# produce without the response outgrowing the browser or the job row outgrowing
+# SQLite. This applies to the web pipeline only; the command-line tool calls
+# run_analysis directly and stays uncapped.
+MAX_ANALYZE_QUERIES = 10
+
 
 def parse_tcr_weights(text: str | None) -> list[float] | None:
     if not text or not text.strip():
@@ -76,7 +84,13 @@ def _available_tools(result_df: pd.DataFrame, tools: list[str]) -> list[str]:
     return available
 
 
-def _save_human_outputs(result, output_dir: Path) -> dict[str, Any]:
+def _save_query_outputs(result, output_dir: Path, query: str) -> dict[str, Any]:
+    """Write the expression and prediction figures for one query peptide.
+
+    Prediction figures are written for every species that has values; the
+    expression heatmap is human-only because the HPA table is, and
+    ``cross_compose`` leaves the expression matrix empty for other systems.
+    """
     output_dir.mkdir(parents=True, exist_ok=True)
 
     available_binding = _available_tools(result.result, BINDING_TOOLS)
@@ -89,11 +103,11 @@ def _save_human_outputs(result, output_dir: Path) -> dict[str, Any]:
     }
 
     if result.expression_matrix is not None and not result.expression_matrix.empty:
-        filename = "expression_heatmap.png"
+        filename = f"expression_heatmap_{query}.png"
         fig = generate_expression_heatmap(
             result.expression_matrix,
             top_n=50,
-            title="Peptide expression and tissue specificity",
+            title=f"Peptide expression and tissue specificity for {query}",
         )
         fig.savefig(output_dir / filename, dpi=250, bbox_inches="tight")
         plt.close(fig)
@@ -101,11 +115,15 @@ def _save_human_outputs(result, output_dir: Path) -> dict[str, Any]:
 
     # Generate only valid combinations. This prevents a dropdown choice from
     # pointing to a plot whose selected prediction column is completely empty.
+    #
+    # `None` stands for "no immunogenicity panel", which is what a class II
+    # query gets: every immunogenicity model here is class I only, so pairing
+    # unconditionally would leave NetMHCIIpan's binding values with no figure
+    # and hide the whole plot card on the results page.
     for binding in available_binding:
-        for immuno in available_immunogenicity:
-            filename = (
-                f"prediction_{binding.replace('-', '_')}_{immuno.replace('-', '_')}.png"
-            )
+        for immuno in available_immunogenicity or [None]:
+            suffix = f"_{immuno.replace('-', '_')}" if immuno else ""
+            filename = f"prediction_{query}_{binding.replace('-', '_')}{suffix}.png"
             fig = plot_prediction_tools(
                 result.result,
                 binding_tool=binding,
@@ -115,7 +133,10 @@ def _save_human_outputs(result, output_dir: Path) -> dict[str, Any]:
             fig.savefig(output_dir / filename, dpi=250, bbox_inches="tight")
             plt.close(fig)
 
-            outputs["prediction_plots"][f"{binding}__{immuno}"] = {
+            # The key is what the frontend looks a plot up by, so it keeps the
+            # `binding__immuno` shape with an empty second half when there is
+            # no immunogenicity panel.
+            outputs["prediction_plots"][f"{binding}__{immuno or ''}"] = {
                 "binding_tool": binding,
                 "immunogenicity_tool": immuno,
                 "filename": filename,
@@ -152,9 +173,19 @@ def run_analysis(
             )
 
     objects = []
-    outputs = {}
+    # binding_tools/immunogenicity_tools are the union over all queries, so they
+    # drive one stable pair of dropdowns; per_query holds each query's figures.
+    outputs: dict[str, Any] = {
+        "binding_tools": [],
+        "immunogenicity_tools": [],
+        "per_query": {},
+    }
 
-    for index, query in enumerate(query_peptides):
+    for query in query_peptides:
+        # Expression is human-only because the HPA table is. Predictions are
+        # not: the prediction tables now carry mouse, rat, dog, swine and
+        # bovine alleles, and gating them on species hid every one of those
+        # values from both the web app and the CLI.
         is_human = species.lower() == "human"
 
         result = cross_compose(
@@ -162,7 +193,7 @@ def run_analysis(
             background=background,
             bio_database_dir=bio_dir,
             position_weight=tcr_weights,
-            include_predictions=is_human,
+            include_predictions=True,
             include_expression=is_human,
         )
         result.metadata.update(
@@ -173,11 +204,18 @@ def run_analysis(
             }
         )
 
-        # The frontend currently presents a single output plot set. Generate
-        # that set from the first query; every query still remains in the CSV.
-        if index == 0 and is_human and output_dir:
-            outputs = _save_human_outputs(result, Path(output_dir))
-            result.metadata["outputs"] = outputs
+        # One figure set per query. The frontend shows the set for the query
+        # selected on the results page. Skipped without an output_dir, which is
+        # how the command-line tool runs (CSV only, no figures).
+        if output_dir:
+            per_query = _save_query_outputs(result, Path(output_dir), query)
+            outputs["per_query"][query] = per_query
+            for key, known in (
+                ("binding_tools", BINDING_TOOLS),
+                ("immunogenicity_tools", IMMUNOGENICITY_TOOLS),
+            ):
+                merged = set(outputs[key]) | set(per_query[key])
+                outputs[key] = [tool for tool in known if tool in merged]
 
         result.result = _clean_result_columns(result.result)
         objects.append(result)
@@ -280,6 +318,13 @@ def handle_request(instructions: dict, bio_dir: str | Path, output_dir: str | Pa
         if not allele:
             raise ValueError("Missing HLA/MHC allele.")
 
+        if len(valid_subject) > MAX_ANALYZE_QUERIES:
+            raise ValueError(
+                f"Analyze mode is limited to {MAX_ANALYZE_QUERIES} query peptides per job "
+                f"(got {len(valid_subject):,}). Split your peptides into smaller batches, or "
+                "use the command-line tool (crossdome2.py analyze), which has no limit."
+            )
+
         objects, outputs = run_analysis(
             allele=allele,
             query_peptides=valid_subject,
@@ -291,10 +336,18 @@ def handle_request(instructions: dict, bio_dir: str | Path, output_dir: str | Pa
             output_dir=output_dir,
         )
 
+        # Rows are one contiguous block per query, each ranked from 1. The
+        # index lets the results page page through a single query at a time
+        # instead of treating the concatenation as one global ranking.
         rows = []
         skipped = 0
+        query_index = []
         for obj in objects:
-            rows.extend(obj.result.to_dict(orient="records"))
+            records = obj.result.to_dict(orient="records")
+            query_index.append(
+                {"query": obj.query, "start": len(rows), "n_rows": len(records)}
+            )
+            rows.extend(records)
             skipped += int(obj.metadata.get("skipped_invalid_peptides_count", 0))
 
         return {
@@ -305,6 +358,7 @@ def handle_request(instructions: dict, bio_dir: str | Path, output_dir: str | Pa
                 "allele": allele,
                 "species": instructions.get("species", "human"),
                 "MHC_class": instructions.get("MHC_class", "I"),
+                "queries": query_index,
                 "outputs": outputs,
                 "skipped_invalid_peptides_count": skipped,
                 "invalid_subject_peptides": invalid_subject,
